@@ -34,19 +34,40 @@ jobs:
       - name: Byte-compile all sources
         run: python -m compileall -q app tests
 
-      - name: Verify config + examples load
+      - name: Verify imports + YAML examples parse
         run: |
-          cp variables.yaml.example variables.yaml
-          cp feeds.yaml.example     feeds.yaml
           python - <<'PY'
-          from app.config import load_config
-          c = load_config()
-          assert "global_settings" in c
-          assert "actions" in c
-          assert c["actions"]["jira"]["enabled"] is False, "jira must ship disabled"
-          assert c["global_settings"]["ingestion_volume_monitor"]["enabled"] is False, \
+          import yaml
+          # The examples must be valid YAML
+          for path in ("variables.yaml.example", "feeds.yaml.example", "config.yaml"):
+              with open(path) as f:
+                  yaml.safe_load(f)
+              print(f"OK - {path} parses")
+          # The app modules must import without errors
+          import app.config
+          import app.checks
+          import app.actions
+          import app.chronicle_client
+          import app.email_client
+          import app.jira_client
+          import app.llm
+          import app.main
+          import app.sync_feeds
+          import app.utils
+          import app.ingestion_monitor
+          print("OK - all app modules import")
+          # Sanity check the shipped defaults are safe
+          import yaml as _yaml
+          with open("config.yaml") as f:
+              cfg = _yaml.safe_load(f)
+          assert cfg["actions"]["jira"]["enabled"] is False, "jira must ship disabled"
+          assert cfg["actions"]["email"]["enabled"] is False, "email must ship disabled"
+          assert cfg["global_settings"]["ingestion_volume_monitor"]["enabled"] is False, \
               "ingestion_volume_monitor must ship disabled"
-          print("OK — config loaded with safe defaults")
+          assert cfg["global_settings"]["auto_restart"]["enabled"] is False, \
+              "auto_restart must ship disabled"
+          assert cfg["investigation"]["llm"]["enabled"] is False, "llm must ship disabled"
+          print("OK - all outbound actions ship disabled by default")
           PY
 
       - name: Build Docker image
