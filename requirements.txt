@@ -1,8 +1,8 @@
 # Pinned to versions verified against the venv used during development.
 # Bump deliberately; do not let `pip install -U` silently change majors.
-secops==0.41.0
+secops==0.44.0
 google-cloud-monitoring==2.30.0
-google-genai==1.72.0
+google-genai==2.0.1
 PyYAML==6.0.3
 requests==2.33.1
 functions-framework==3.10.1
