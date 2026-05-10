@@ -1,0 +1,38 @@
+# Never bake secrets into the image
+variables.yaml
+feeds.yaml
+**/creds/
+**/secrets/
+*.key
+*-key.json
+*-credentials.json
+service-account*.json
+.env
+
+# Build / dev artifacts
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# VCS / IDE / OS noise
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Tests + docs not needed at runtime
+tests/
+README.md
+LICENSE
+*.md

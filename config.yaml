@@ -1,0 +1,115 @@
+﻿# ===========================================================================
+# Feed Health Monitoring — config.yaml
+# ---------------------------------------------------------------------------
+# Secrets and per-feed data live in variables.yaml and feeds.yaml.
+# Full reference: see README.md.
+# ===========================================================================
+
+global_settings:
+  # --- Check time windows (hours) ---
+  gcp_metrics_hours: 1            # Bucket size for the metrics check
+  udm_search_hours: 1             # Lookback window for UDM search
+
+  # --- gcp_metrics anomaly detection ---
+  gcp_metrics_baseline_hours: 720       # Baseline history (720h = 30d)
+  gcp_metrics_anomaly_threshold: 3.0    # Z-score cutoff (lower = stricter)
+  gcp_metrics_min_baseline_samples: 5   # Min samples before anomaly check runs
+
+  # --- API call behavior ---
+  retry_count: 2                  # Retries per failed API call
+  retry_delay_seconds: 10         # Initial backoff; doubles each retry (cap 60s)
+  chronicle_timeout_seconds: 60   # Per-call timeout for Chronicle/GCP SDK
+
+  # --- Logging ---
+  # DEBUG | INFO | WARNING | ERROR | PROD
+  #   DEBUG    = verbose; includes pretty-printed Chronicle API payloads.
+  #              The app prompts for confirmation before enabling it.
+  #   INFO     = adds per-feed progress lines and a final summary.
+  #   WARNING  = quiet runs; only unhealthy feeds + retries are logged.
+  #              Recommended default for day-to-day use.
+  #   ERROR    = silent on success; only logs failures of the monitoring
+  #              itself (Chronicle API errors, action exceptions, config
+  #              problems). Unhealthy feeds are WARNINGs, so they will NOT
+  #              appear at this level — pick WARNING if you want to see them.
+  #   PROD     = same threshold as ERROR, plus one sanitized
+  #              "COMPLETED: healthy=X unhealthy=Y skipped=Z ..." line per
+  #              run on stdout. Designed for Cloud Run Jobs / Cloud Logging
+  #              so you can alert on severity>=ERROR and still confirm the
+  #              job ran. Contains no project/customer/feed identifiers.
+  # Identifiers (project_id, customer_id, feed UUIDs, log types, source
+  # settings) are masked in terminal output by default. Set the env var
+  # FEEDHEALTH_UNMASK=1 to show full values.
+  log_level: INFO
+  # Operator env vars (terminal/debug only — never set on Cloud Run):
+  #   FEEDHEALTH_UNMASK=1     show raw IDs in terminal output
+  #   FEEDHEALTH_NO_CONFIRM=1 skip the DEBUG confirmation prompt
+
+  # --- Auto-restart unhealthy feeds (disable → wait → enable → wait → recheck) ---
+  auto_restart:
+    enabled: false
+    wait_after_disable_seconds: 15
+    wait_after_enable_seconds: 15
+
+  # --- Auto-sync feed list from Chronicle on every app start ---
+  auto_sync:
+    enabled: false
+    new_feeds_enabled: false      # 'enabled' value for newly discovered feeds
+
+  # --- Project-wide ingestion-volume guardrail (license/quota cap) ---
+  # Sums one Cloud Monitoring metric across the whole project over a
+  # trailing window and alerts when the total exceeds `threshold`.
+  # See README → "GLOBAL INGESTION-VOLUME GUARDRAIL" for metric choices,
+  # threshold units (gb/tb/mb/kb decimal, gib/tib binary), and examples.
+  ingestion_volume_monitor:
+    enabled: false                # Opt-in: tune threshold_* before enabling
+    window_hours: 24
+    metric_type: chronicle.googleapis.com/ingestion/log/bytes_count
+    threshold_tb: 1               # Pick exactly ONE threshold_* key
+    actions_on_breach: [jira]
+
+
+# ===========================================================================
+# ACTIONS — fired when a feed is UNHEALTHY
+# Credentials/URLs are loaded from variables.yaml or env vars (never here).
+# ===========================================================================
+actions:
+
+  jira:
+    enabled: false                # Opt-in: set Jira creds in variables.yaml first
+    issue_type: Task
+    dedupe:
+      enabled: true               # Skip if an unresolved ticket already exists
+    assign:
+      enabled: false              # Assignees come from variables.yaml (jira_assignees)
+
+  email:
+    enabled: false
+    # Common SMTP relays:
+    #   smtp-relay.gmail.com:587  (Workspace)
+    #   smtp.office365.com:587    (Microsoft 365)
+    #   <internal relay>:25       (often unauth + IP-allowlisted)
+    smtp_server: smtp-relay.gmail.com
+    smtp_port: 587
+    use_starttls: true            # Required if username/password is set
+    use_ssl: false                # true for implicit TLS (port 465)
+    timeout_seconds: 30
+    dedupe_via_jira: true         # Suppress email if a Jira ticket exists
+
+
+# ===========================================================================
+# LLM INVESTIGATION — Vertex AI Gemini
+# ===========================================================================
+investigation:
+  llm:
+    enabled: false
+    model: gemini-2.5-flash
+    max_output_tokens: 2048
+    temperature: 0.3
+
+
+# ===========================================================================
+# FEEDS
+# Feeds are defined in feeds.yaml (gitignored). Generate / update with:
+#     python -m app.sync_feeds
+# Override the path with the FEEDS_PATH env var.
+# ===========================================================================

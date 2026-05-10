@@ -1,0 +1,52 @@
+# Sensitive files - NEVER commit
+variables.yaml
+feeds.yaml
+**/creds/
+**/secrets/
+*.key
+*.pem
+*-key.json
+*-key.pem
+*-credentials.json
+service-account*.json
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Backups / scratch
+*.bak
+*.tmp
+*.orig

@@ -1,0 +1,58 @@
+# ============================================================
+# Feed Health Monitoring App - Feeds template
+# ============================================================
+# Two ways to get a working feeds.yaml:
+#
+#   1. Recommended — auto-discover from your Chronicle tenant:
+#          python -m app.sync_feeds
+#      This creates feeds.yaml if it doesn't exist, or merges new
+#      feeds into an existing one (your enabled/checks/actions edits
+#      are preserved on every re-sync). New feeds default to
+#      enabled: false so a sync never silently adds monitoring.
+#
+#   2. Manual — copy this file:
+#          cp feeds.yaml.example feeds.yaml
+#      Then edit the `feeds:` list yourself.
+#
+# If feeds.yaml is missing entirely, the app still runs — it just
+# logs a warning and processes zero feeds. Run sync_feeds (option 1)
+# to populate it.
+#
+# feeds.yaml is gitignored — it contains operational data
+# (Chronicle instance UUID, feed UUIDs, source endpoints,
+# team metadata) and should be stored in Secret Manager or a
+# locked-down GCS bucket for production deployments. Override the
+# path with the FEEDS_PATH env var.
+#
+# Fields prefixed with `_` are auto-populated by sync_feeds —
+# do not hand-edit them.
+# ============================================================
+
+feeds: []
+# Example structure once populated by sync_feeds:
+#
+# feeds:
+# - enabled: true                              # Monitor this feed
+#   name: My_Feed_Name
+#   chronicle_feed_id: <uuid>                  # From Chronicle
+#   dataType: AZURE_ACTIVITY
+#   namespace: ''                              # Optional Chronicle namespace
+#   metric_identifier:
+#     type: log_type                           # log_type | namespace
+#     value: AZURE_ACTIVITY
+#   checks:
+#   - feed_state
+#   - gcp_metrics
+#   - udm_search
+#   udm_query: metadata.log_type = "AZURE_ACTIVITY"
+#   actions_on_failure:
+#   - jira
+#   - llm
+#   # Auto-populated fields (do not edit):
+#   _state: ACTIVE
+#   _source_type: AZURE_BLOBSTORE_V2
+#   _log_type_full: projects/.../logTypes/AZURE_ACTIVITY
+#   _labels: {}
+#   _source_settings: {}
+#   _discovered: '2026-01-01T00:00:00+00:00'
+#   _last_sync: '2026-01-01T00:00:00+00:00'

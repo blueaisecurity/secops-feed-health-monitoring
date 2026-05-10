@@ -1,0 +1,50 @@
+# ============================================================
+# Sensitive Variables Template
+# ============================================================
+# Copy this file to variables.yaml and fill in your values:
+#   cp variables.yaml.example variables.yaml
+#
+# IMPORTANT: variables.yaml is gitignored — never commit secrets!
+#
+# Naming convention: every key here maps 1:1 to a value referenced
+# by config.yaml. The matching env-var name (used on Cloud Run +
+# Secret Manager) is shown next to each key. Env var > variables.yaml
+# > config.yaml fallback.
+# ============================================================
+
+# ── Core GCP / Chronicle (required) ──
+project_id: "your-gcp-project-id"          # env: PROJECT_ID
+customer_id: "your-chronicle-customer-id"  # env: CUSTOMER_ID
+region: "us"                               # env: REGION       (us, eu, asia-southeast1, ...)
+location: "us-central1"                    # env: LOCATION     (Vertex AI region; only needed if investigation.llm.enabled = true)
+
+# Path to GCP service account JSON key file. Leave empty on Cloud Run /
+# GCE / GKE — Application Default Credentials are picked up automatically.
+credentials_file: "C:\\path\\to\\your-service-account-key.json"  # env: CREDENTIALS_FILE
+
+# ── Jira (only needed if actions.jira.enabled = true) ──
+# Credentials:
+jira_api_url: "https://your-site.atlassian.net/rest/api/3"  # env: JIRA_API_URL    (must be HTTPS)
+jira_user_email: "you@example.com"                          # env: JIRA_USER_EMAIL (Atlassian account email)
+jira_api_key: ""                                            # env: JIRA_API_KEY    (id.atlassian.com/manage-profile/security/api-tokens)
+# Identifiers (kept here so config.yaml can be safely committed):
+jira_project_key: "SECOPS"                                  # env: JIRA_PROJECT_KEY - get it from your Jira Board
+# Auto-assignees — list of emails OR Atlassian accountIds. The app tries
+# each entry in order and assigns the first one it can resolve. Most
+# Atlassian Cloud sites hide email addresses by default (Profile
+# Visibility ≠ "Anyone"); on those sites use accountIds. Find a user's
+# accountId at: https://<your-site>.atlassian.net/rest/api/3/myself
+jira_assignees:                                             # env: JIRA_ASSIGNEES (comma-separated)
+  - "alice@example.com"
+  # - "5rxxa2844c20265700eee21g"                            # Find a user's accountId at: https://<your-site>.atlassian.net/rest/api/3/myself
+
+# ── Email / SMTP (only needed if actions.email.enabled = true) ──
+email_from_address: "feed-health-monitor@example.com"       # env: EMAIL_FROM_ADDRESS
+email_recipients:                                           # env: EMAIL_RECIPIENTS (comma-separated)
+  - "soc-team@example.com"
+  - "secops-lead@example.com"
+# SMTP auth — leave both blank if your relay accepts mail from allow-listed
+# source IPs without authentication.
+email_smtp_username: ""                                     # env: EMAIL_SMTP_USERNAME
+email_smtp_password: ""                                     # env: EMAIL_SMTP_PASSWORD
+
