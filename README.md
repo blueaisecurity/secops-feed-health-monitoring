@@ -28,7 +28,7 @@ project/customer/UUIDs and high-signal infra values redacted.
 ## Quick start
 
 ```powershell
-git clone <repo-url> feed-health-monitoring
+git clone https://github.com/blueaisecurity/secops-feed-health-monitoring feed-health-monitoring
 cd feed-health-monitoring
 python -m venv venv
 .\venv\Scripts\Activate.ps1            # macOS/Linux: source venv/bin/activate
