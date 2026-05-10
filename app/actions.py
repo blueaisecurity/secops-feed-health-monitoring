@@ -162,8 +162,25 @@ def execute_actions(config, feed_config, check_results, feed_metadata=None, was_
                 logger.info(f"  📧 [EMAIL] Disabled in config — skipping")
 
         elif action == "restart_feed":
-            logger.info(f"  🔄 [RESTART] Would restart feed: {feed_name}")
-            # TODO: Implement feed restart via Chronicle API
+            from app.chronicle_client import restart_feed
+            feed_id = feed_config.get("chronicle_feed_id")
+            if not feed_id:
+                logger.error(
+                    f"  🔄 [RESTART] Cannot restart feed '{feed_name}': "
+                    f"chronicle_feed_id is missing in feed config"
+                )
+            else:
+                auto_restart_cfg = (
+                    config.get("global_settings", {}).get("auto_restart", {}) or {}
+                )
+                wait_after_disable = auto_restart_cfg.get("wait_after_disable_seconds", 15)
+                wait_after_enable = auto_restart_cfg.get("wait_after_enable_seconds", 15)
+                logger.info(f"  🔄 [RESTART] Restarting feed: {feed_name}")
+                restart_ok = restart_feed(
+                    config, feed_id, wait_after_disable, wait_after_enable
+                )
+                if not restart_ok:
+                    logger.error(f"  🔄 [RESTART] Restart failed for feed '{feed_name}'")
 
         elif action == "llm":
             if config.get("investigation", {}).get("llm", {}).get("enabled"):
