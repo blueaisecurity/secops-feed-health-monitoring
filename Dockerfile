@@ -13,11 +13,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Application code + non-sensitive settings.
-# feeds.yaml and variables.yaml are intentionally NOT copied — they are
-# provided at runtime via env vars / Secret Manager / GCS volume mount.
+# Application code only. config.yaml, feeds.yaml and variables.yaml are
+# intentionally NOT copied — they are provided at runtime:
+#   - config.yaml + feeds.yaml: mounted from a GCS bucket at /etc/feed-health/
+#     (point CONFIG_PATH / FEEDS_PATH env vars at the mount path)
+#   - variables.yaml values: --set-env-vars + --set-secrets (Secret Manager)
+# See REFERENCE.md → Setup — Cloud Run (production).
 COPY app/ ./app/
-COPY config.yaml ./config.yaml
 
 # Run as non-root.
 RUN useradd --create-home --shell /usr/sbin/nologin runner \

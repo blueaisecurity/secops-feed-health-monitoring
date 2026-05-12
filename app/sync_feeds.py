@@ -163,7 +163,7 @@ def _build_source_settings(details):
     return settings
 
 
-def sync_feeds(config_path="config.yaml"):
+def sync_feeds(config_path=None):
     """
     Auto-discover Chronicle feeds and merge them into feeds.yaml.
     - New feeds are added with enabled = global_settings.auto_sync.new_feeds_enabled
@@ -174,6 +174,10 @@ def sync_feeds(config_path="config.yaml"):
 
     The feeds list is read from and written to feeds.yaml (or whatever path
     FEEDS_PATH env var resolves to). config.yaml itself is never mutated.
+
+    config_path is left as None by default so load_config() can honour the
+    CONFIG_PATH env var (used on Cloud Run, where config.yaml is mounted
+    at /etc/feed-health/).
     """
 
     config = load_config(config_path)

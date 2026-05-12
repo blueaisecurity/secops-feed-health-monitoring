@@ -38,8 +38,10 @@ jobs:
         run: |
           python - <<'PY'
           import yaml
-          # The examples must be valid YAML
-          for path in ("variables.yaml.example", "feeds.yaml.example", "config.yaml"):
+          # The committed *.example templates must be valid YAML.
+          # config.yaml itself is gitignored — config.yaml.example is the
+          # template users copy from.
+          for path in ("variables.yaml.example", "feeds.yaml.example", "config.yaml.example"):
               with open(path) as f:
                   yaml.safe_load(f)
               print(f"OK - {path} parses")
@@ -56,9 +58,9 @@ jobs:
           import app.utils
           import app.ingestion_monitor
           print("OK - all app modules import")
-          # Sanity check the shipped defaults are safe
+          # Sanity check the shipped defaults in config.yaml.example are safe
           import yaml as _yaml
-          with open("config.yaml") as f:
+          with open("config.yaml.example") as f:
               cfg = _yaml.safe_load(f)
           assert cfg["actions"]["jira"]["enabled"] is False, "jira must ship disabled"
           assert cfg["actions"]["email"]["enabled"] is False, "email must ship disabled"

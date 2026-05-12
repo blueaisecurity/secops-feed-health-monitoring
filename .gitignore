@@ -1,4 +1,7 @@
-# Sensitive files - NEVER commit
+# Sensitive / environment-specific files - NEVER commit
+# Only the *.example templates are committed. Copy each to the
+# unsuffixed name and edit locally.
+config.yaml
 variables.yaml
 feeds.yaml
 **/creds/
@@ -31,6 +34,7 @@ htmlcov/
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 

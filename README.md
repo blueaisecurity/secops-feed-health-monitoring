@@ -27,6 +27,13 @@ project/customer/UUIDs and high-signal infra values redacted.
 
 ## Quick start
 
+> **Where to run these commands.** The examples below are for a **local
+> terminal** (PowerShell on Windows, bash/zsh on macOS/Linux). For
+> Cloud Run deployment you can also run the gcloud commands from
+> **Cloud Shell** in the browser — see
+> [REFERENCE.md → Where to run setup commands](REFERENCE.md#where-to-run-setup-commands)
+> for the differences (line continuation, multi-line paste, etc.).
+
 ```powershell
 git clone https://github.com/blueaisecurity/secops-feed-health-monitoring.git feed-health-monitoring
 cd feed-health-monitoring
@@ -34,7 +41,8 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1            # macOS/Linux: source venv/bin/activate
 pip install -r requirements.txt
 
-cp variables.yaml.example variables.yaml   # fill in project_id, customer_id, region
+cp config.yaml.example     config.yaml       # tuning knobs + action toggles
+cp variables.yaml.example  variables.yaml    # fill in project_id, customer_id, region
 gcloud auth application-default login
 # Alternatives: impersonate a service account, or set
 # GOOGLE_APPLICATION_CREDENTIALS / credentials_file to a SA JSON key.
@@ -52,25 +60,30 @@ ingestion guardrail once credentials are in `variables.yaml`.
 
 ## Configuration files
 
-| File | What | Committed? |
-|---|---|---|
-| `config.yaml` | Tuning knobs + action toggles | yes |
-| `variables.yaml` | project_id, customer_id, secrets | **gitignored** |
-| `feeds.yaml` | Per-feed settings | **gitignored** |
+| File              | What                              | Committed?      |
+| ----------------- | --------------------------------- | --------------- |
+| `config.yaml`     | Tuning knobs + action toggles     | **gitignored**  |
+| `variables.yaml`  | project_id, customer_id, secrets  | **gitignored**  |
+| `feeds.yaml`      | Per-feed settings                 | **gitignored**  |
+
+Only the `*.example` templates are committed. Copy each one to its
+unsuffixed name and edit. In production, all three files live outside
+the container (GCS bucket for `config.yaml` + `feeds.yaml`, Secret
+Manager for the values inside `variables.yaml`).
 
 ## Production
 
 Deploy as a Cloud Run **Job** triggered by Cloud Scheduler. Secrets via
-Secret Manager (`--set-secrets`), `feeds.yaml` mounted from a hardened
-GCS bucket, no JSON keys on disk. Full walkthrough in
-[REFERENCE.md → SETUP — CLOUD RUN](REFERENCE.md#setup--cloud-run-production).
+Secret Manager (`--set-secrets`), `config.yaml` + `feeds.yaml` mounted
+from a hardened GCS bucket, no JSON keys on disk. Full walkthrough in
+[REFERENCE.md → Setup — Cloud Run](REFERENCE.md#setup--cloud-run-production).
 
 ## Operator env vars
 
 - `FEEDHEALTH_UNMASK=1` — show raw IDs in terminal output (terminal only,
   never on Cloud Run).
 - `FEEDHEALTH_NO_CONFIRM=1` — skip the DEBUG confirmation prompt.
- 
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

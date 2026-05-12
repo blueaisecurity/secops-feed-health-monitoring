@@ -14,6 +14,9 @@
 
 # ── Core GCP / Chronicle (required) ──
 project_id: "your-gcp-project-id"          # env: PROJECT_ID
+# customer_id is the Chronicle tenant UUID. Locally it can sit here, but in
+# production deploy it via Secret Manager (--set-secrets=CUSTOMER_ID=...) so
+# it does not appear in `gcloud run jobs describe` output or deploy history.
 customer_id: "your-chronicle-customer-id"  # env: CUSTOMER_ID
 region: "us"                               # env: REGION       (us, eu, asia-southeast1, ...)
 location: "us-central1"                    # env: LOCATION     (Vertex AI region; only needed if investigation.llm.enabled = true)

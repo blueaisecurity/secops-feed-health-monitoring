@@ -236,7 +236,9 @@ def _load_feeds_cache(config):
 def run_monitoring():
     """Core monitoring function — runs all checks for all enabled feeds."""
 
-    config = load_config("config.yaml")
+    # Pass config_path=None so load_config() honours the CONFIG_PATH env var
+    # (used on Cloud Run, where config.yaml is mounted at /etc/feed-health/).
+    config = load_config()
     log_level = config.get("global_settings", {}).get("log_level", "WARNING")
     _confirm_sensitive_level(log_level)
     setup_logging(log_level)
@@ -250,9 +252,9 @@ def run_monitoring():
         logger.info("🔄 Auto-sync enabled — syncing feeds from Chronicle...")
         try:
             from app.sync_feeds import sync_feeds
-            sync_feeds("config.yaml")
+            sync_feeds()
             # Reload config so the in-memory feed list reflects the sync result
-            config = load_config("config.yaml")
+            config = load_config()
         except Exception as e:
             logger.error(f"Auto-sync failed: {e} — continuing with current config")
 

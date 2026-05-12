@@ -24,7 +24,8 @@ private disclosure process.
 4. Run the smoke checks locally before pushing:
    ```powershell
    python -m compileall -q app tests
-   cp variables.yaml.example variables.yaml   # if you don't already have one
+   cp config.yaml.example    config.yaml      # if you don't already have one
+   cp variables.yaml.example variables.yaml   # ditto
    cp feeds.yaml.example     feeds.yaml
    python -c "from app.config import load_config; load_config()"
    python .\tests\test_connection.py          # probes Chronicle + Monitoring

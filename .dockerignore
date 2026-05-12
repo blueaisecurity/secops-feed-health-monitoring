@@ -1,4 +1,8 @@
-# Never bake secrets into the image
+# Never bake config or secrets into the image.
+# All three live outside the container at runtime:
+#   - config.yaml / feeds.yaml come from a mounted GCS bucket
+#   - variables.yaml values come from --set-env-vars / --set-secrets
+config.yaml
 variables.yaml
 feeds.yaml
 **/creds/
