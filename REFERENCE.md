@@ -518,10 +518,30 @@ Build with Cloud Build into Artifact Registry:
 gcloud artifacts repositories create feed-health \
   --repository-format=docker --location=us-central1 --project=$PROJECT
 
-gcloud builds submit --tag \
-  us-central1-docker.pkg.dev/$PROJECT/feed-health/monitor:latest \
-  --project=$PROJECT
+# Local build: runs from the current directory, so you must be inside a
+# checkout of this repo on your workstation (cloud-build will upload the
+# working dir as the build context).
+#
+# gcloud builds submit --tag \
+#   us-central1-docker.pkg.dev/$PROJECT/feed-health/monitor:latest \
+#   --project=$PROJECT
+
+# Cloud Shell / browser build: no local checkout needed — clone the repo
+# in Cloud Shell first, then submit from that directory. Uncomment to use.
+#
+# git clone https://github.com/blueaisecurity/secops-feed-health-monitoring.git
+# cd secops-feed-health-monitoring
+# gcloud builds submit --tag \
+#   us-central1-docker.pkg.dev/$PROJECT/feed-health/monitor:latest \
+#   --project=$PROJECT
 ```
+
+> Tip: `gcloud builds submit` uploads the *current working directory* as
+> the build context. Running it in Cloud Shell without first cloning the
+> repo will upload an empty/unrelated directory and the build will fail
+> with "Dockerfile not found". Either clone first (shown above) or wire
+> up a Cloud Build GitHub trigger that builds straight from the repo on
+> every push.
 
 ### 4b. Create the GCS bucket for `config.yaml` + `feeds.yaml` (hardened)
 
