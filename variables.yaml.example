@@ -38,7 +38,8 @@ location: "us-central1"                    # env: LOCATION     (Vertex AI region
 
 # Path to GCP service account JSON key file. Leave empty on Cloud Run /
 # GCE / GKE — Application Default Credentials are picked up automatically.
-credentials_file: "C:\\path\\to\\your-service-account-key.json"  # env: CREDENTIALS_FILE
+credentials_file: ""  # env: CREDENTIALS_FILE
+# "C:\\path\\to\\your-service-account-key.json" -> local example for Windows PS 
 
 # ── Jira (only needed if actions.jira.enabled = true) ──
 # Credentials:
