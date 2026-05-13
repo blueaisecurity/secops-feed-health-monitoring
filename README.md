@@ -42,7 +42,14 @@ python -m venv venv
 pip install -r requirements.txt
 
 cp config.yaml.example     config.yaml       # tuning knobs + action toggles
-cp variables.yaml.example  variables.yaml    # fill in project_id, customer_id, region
+cp variables.yaml.example  variables.yaml    # fill in project_id, region (NOT customer_id — see below)
+
+# Required env var for the very first run. CUSTOMER_ID is env-var only
+# (the app will refuse to read it from variables.yaml). PROJECT_ID can
+# also be set here instead of in variables.yaml.
+$env:CUSTOMER_ID="<chronicle-customer-uuid>"   # PowerShell
+# export CUSTOMER_ID="<chronicle-customer-uuid>"   # bash/zsh
+
 gcloud auth application-default login
 # Alternatives: impersonate a service account, or set
 # GOOGLE_APPLICATION_CREDENTIALS / credentials_file to a SA JSON key.
@@ -56,11 +63,20 @@ python -m app.main                         # one monitoring pass
 
 By default all outbound actions ship **disabled** — the first run is safe
 and only logs results. Edit `config.yaml` to enable Jira / email / the
-ingestion guardrail once credentials are set. Secrets (`CUSTOMER_ID`,
-`JIRA_API_KEY`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`) must be set
-as **environment variables**, not stored in `variables.yaml` — the app
-warns and prompts for confirmation on every run if it finds any of them
-in the file, and refuses to start on Cloud Run / cron. See
+ingestion guardrail once credentials are set.
+
+**Env-var-only secrets.** Four values must be set as environment
+variables and are never read from `variables.yaml`:
+
+| Env var               | Required when                   |
+| --------------------- | ------------------------------- |
+| `CUSTOMER_ID`         | always (first run included)     |
+| `JIRA_API_KEY`        | `actions.jira.enabled = true`   |
+| `EMAIL_SMTP_USERNAME` | SMTP relay requires auth        |
+| `EMAIL_SMTP_PASSWORD` | SMTP relay requires auth        |
+
+If any of them appear in `variables.yaml` the app warns and prompts on
+every run, and refuses to start on Cloud Run / cron. See
 [REFERENCE.md](REFERENCE.md) for details.
 
 ## Configuration files
