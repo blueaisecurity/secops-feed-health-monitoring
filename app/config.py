@@ -40,8 +40,101 @@ def _warn_if_world_or_group_readable(path, label):
         )
 
 
+# Keys that should come from environment variables (and Secret Manager in
+# production). If any is present with a non-placeholder value in
+# variables.yaml the operator is forced to acknowledge before continuing —
+# see _guard_file_secrets().
+_SENSITIVE_FILE_KEYS = (
+    "customer_id",
+    "jira_api_key",
+    "email_smtp_username",
+    "email_smtp_password",
+)
+_SECRET_ENV_MAP = {
+    "customer_id":         "CUSTOMER_ID",
+    "jira_api_key":        "JIRA_API_KEY",
+    "email_smtp_username": "EMAIL_SMTP_USERNAME",
+    "email_smtp_password": "EMAIL_SMTP_PASSWORD",
+}
+
+
+def _is_placeholder(value):
+    """True for None, non-strings, empty/whitespace, or 'your-...' placeholders."""
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return False
+    s = value.strip()
+    return (not s) or s.startswith("your-")
+
+
+def _guard_file_secrets(file_vars, variables_path):
+    """
+    Refuse to silently load credentials/tenant IDs from variables.yaml.
+
+    These values should come from environment variables (and Secret
+    Manager in production), not a clear-text YAML file. If any are
+    present with a real (non-placeholder) value:
+
+    - Interactive terminal: warn, then require explicit y/N confirmation.
+    - Non-TTY (Cloud Run Job, cron, CI): raise ConfigError — there is
+      no way to acknowledge the risk, and a foot-gun production deploy
+      is exactly what this guard exists to prevent.
+
+    Override (discouraged): FEEDHEALTH_ALLOW_FILE_SECRETS=1.
+    """
+    import sys
+
+    offenders = [
+        k for k in _SENSITIVE_FILE_KEYS
+        if not _is_placeholder(file_vars.get(k))
+    ]
+    if not offenders:
+        return
+
+    banner_lines = [
+        f"Sensitive value(s) found in {variables_path}: {', '.join(offenders)}",
+        "    These should come from environment variables (Secret Manager",
+        "    in production), not a clear-text YAML file. Use:",
+    ]
+    for key in offenders:
+        banner_lines.append(f"      {key:<20s} -> ${_SECRET_ENV_MAP[key]}")
+    banner = "\n".join(banner_lines)
+    logger.warning("\n%s", banner)
+
+    if os.environ.get("FEEDHEALTH_ALLOW_FILE_SECRETS") == "1":
+        logger.warning(
+            "FEEDHEALTH_ALLOW_FILE_SECRETS=1 - proceeding with file-resident secrets."
+        )
+        return
+
+    if not sys.stdin.isatty():
+        raise ConfigError(
+            f"Refusing to start: {', '.join(offenders)} found in {variables_path}. "
+            f"Move these to environment variables "
+            f"({', '.join(_SECRET_ENV_MAP[k] for k in offenders)}). "
+            f"Override with FEEDHEALTH_ALLOW_FILE_SECRETS=1 for a one-off run."
+        )
+
+    print(
+        f"\n{banner}\n\n"
+        f"   Continuing will load these values from {variables_path} verbatim.\n"
+        f"   Recommended: Ctrl-C, move them to env vars, then re-run.\n",
+        file=sys.stderr,
+    )
+    try:
+        answer = input("Continue anyway? [y/N] ").strip().lower()
+    except EOFError:
+        answer = ""
+    if answer not in ("y", "yes"):
+        raise ConfigError(
+            "Aborted: secret(s) still present in variables.yaml. Move them "
+            "to environment variables and re-run."
+        )
+
+
 def _read_variables_file(variables_path=VARIABLES_FILE):
-    """Return the raw dict from variables.yaml, or an empty dict if missing.""" 
+    """Return the raw dict from variables.yaml, or an empty dict if missing."""
     if not os.path.exists(variables_path):
         return {}
     _warn_if_world_or_group_readable(variables_path, "variables.yaml")
@@ -109,6 +202,7 @@ def _load_variables(variables_path=VARIABLES_FILE):
     pass everything via env vars / Secret Manager.
     """
     file_vars = _read_variables_file(variables_path)
+    _guard_file_secrets(file_vars, variables_path)
 
     def _pick(env_key, file_key, default=None):
         return os.environ.get(env_key) or file_vars.get(file_key) or default
@@ -128,10 +222,20 @@ def _load_variables(variables_path=VARIABLES_FILE):
         if not variables.get(k) or str(variables[k]).startswith("your-")
     ]
     if missing:
-        raise ConfigError(
-            f"Missing required variable(s): {missing}. "
-            f"Set them as env vars (PROJECT_ID, CUSTOMER_ID) or in {variables_path}."
+        # CUSTOMER_ID is env-var only (see _guard_file_secrets) so don't
+        # suggest putting it back in variables.yaml — that path warns and
+        # aborts on non-TTY.
+        env_names = ", ".join(
+            "CUSTOMER_ID" if k == "customer_id" else k.upper()
+            for k in missing
         )
+        if "customer_id" in missing and "project_id" in missing:
+            hint = f"Set CUSTOMER_ID as an env var. PROJECT_ID can be an env var or live in {variables_path}."
+        elif "customer_id" in missing:
+            hint = "Set CUSTOMER_ID as an env var (it is env-var only, not accepted in variables.yaml)."
+        else:
+            hint = f"Set them as env vars ({env_names}) or in {variables_path}."
+        raise ConfigError(f"Missing required variable(s): {missing}. {hint}")
 
     # ── Set GCP credentials from file if specified ──
     credentials_file = variables.get("credentials_file")

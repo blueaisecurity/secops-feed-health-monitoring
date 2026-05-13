@@ -272,13 +272,58 @@ The `*.example` versions are the only files committed to the repo.
 
 ### 3. Configure runtime variables
 
-You have two options:
+Four values are **env-var only** — they are not accepted from
+`variables.yaml` without an explicit interactive confirmation prompt
+(and the run aborts on Cloud Run / cron / CI, where there is no TTY
+to prompt):
 
-**Option A — file (easiest for local dev).** Edit `variables.yaml`:
+| Env var                | What                                     | Required when                       |
+| ---------------------- | ---------------------------------------- | ----------------------------------- |
+| `CUSTOMER_ID`          | Chronicle tenant UUID                    | always                              |
+| `JIRA_API_KEY`         | Atlassian API token                      | `actions.jira.enabled = true`       |
+| `EMAIL_SMTP_USERNAME`  | SMTP auth user                           | SMTP relay requires auth            |
+| `EMAIL_SMTP_PASSWORD`  | SMTP auth password                       | SMTP relay requires auth            |
+
+These are credentials / tenant identifiers and shouldn't live in a
+clear-text YAML file. If any of them are present in `variables.yaml`
+the app will warn and prompt on every run (and hard-fail on non-TTY
+runs). Emergency override (discouraged, one-off migrations only):
+`FEEDHEALTH_ALLOW_FILE_SECRETS=1`.
+
+Everything else (`project_id`, `region`, `location`, `jira_api_url`,
+`jira_user_email`, `jira_project_key`, `jira_assignees`,
+`email_from_address`, `email_recipients`, `credentials_file`) can live
+in `variables.yaml` OR be set as env vars — your choice. Env vars
+always win.
+
+**Option A — env vars (recommended, matches the Cloud Run shape):**
+
+```powershell
+# Required everywhere
+$env:PROJECT_ID="<your-gcp-project-id>"
+$env:CUSTOMER_ID="<chronicle-customer-uuid>"      # env-var only
+
+# Non-secret defaults (or put these in variables.yaml)
+$env:REGION="us"
+$env:LOCATION="us-central1"
+
+# Only if actions.jira.enabled = true
+$env:JIRA_API_URL="https://<your-site>.atlassian.net/rest/api/3"
+$env:JIRA_USER_EMAIL="<your-atlassian-email>"
+$env:JIRA_API_KEY="<atlassian-api-token>"         # env-var only
+
+# Only if your SMTP relay requires auth
+$env:EMAIL_SMTP_USERNAME="<smtp-user>"            # env-var only
+$env:EMAIL_SMTP_PASSWORD="<smtp-password>"        # env-var only
+```
+
+Bash / Cloud Shell equivalent: `export PROJECT_ID=...` etc.
+
+**Option B — `variables.yaml` for the non-secret values, env vars for
+the four secrets.** Edit `variables.yaml`:
 
 ```yaml
 project_id:       my-secops-project
-customer_id:      <chronicle customer UUID>
 region:           us
 location:         us-central1               # Vertex AI location
 credentials_file: /path/to/sa-key.json      # only if using a JSON key
@@ -286,23 +331,10 @@ credentials_file: /path/to/sa-key.json      # only if using a JSON key
 # Jira (only if actions.jira.enabled = true)
 jira_api_url:     https://your.atlassian.net/rest/api/3
 jira_user_email:  you@example.com
-jira_api_key:     <Atlassian API token>
+jira_project_key: SECOPS
 ```
 
-**Option B — env vars (matches the Cloud Run shape):**
-
-```powershell
-# Replace each <PLACEHOLDER> with your value before running.
-$env:PROJECT_ID="<your-gcp-project-id>"
-$env:CUSTOMER_ID="<chronicle-customer-uuid>"
-$env:REGION="us"
-$env:LOCATION="us-central1"
-$env:JIRA_API_URL="https://<your-site>.atlassian.net/rest/api/3"
-$env:JIRA_USER_EMAIL="<your-atlassian-email>"
-$env:JIRA_API_KEY="<atlassian-api-token>"
-```
-
-Env vars always win over `variables.yaml`. You can mix the two.
+Then export the four env-var-only secrets in your shell before running.
 
 ### 4. Provide GCP credentials (pick ONE)
 
@@ -365,6 +397,36 @@ The deploy uses NO local files for secrets:
 - **non-secret env** → `--set-env-vars`
 - **secrets and identifying IDs** → Secret Manager bound via `--set-secrets`
 - **GCP auth** → runtime service account (no JSON key)
+
+### Architecture
+
+```mermaid
+flowchart LR
+    SCH([Cloud Scheduler<br/>cron */30 * * * *]) -->|invoke| JOB
+
+    JOB[Cloud Run Job<br/>feed-health-monitor]
+
+    GCS[("GCS bucket<br/>config.yaml + feeds.yaml")] -.->|read-only mount| JOB
+    SM[("Secret Manager<br/>CUSTOMER_ID, JIRA_API_KEY,<br/>EMAIL_SMTP_*")] -.->|env vars| JOB
+    JOB -.->|stdout / stderr| LOG[Cloud Logging]
+
+    JOB --> CHR[Chronicle SecOps API]
+    JOB --> MON[Cloud Monitoring API]
+    JOB --> VAI[Vertex AI Gemini]
+
+    JOB -.->|optional: Direct VPC egress| NAT[Cloud NAT<br/>static external IP]
+    NAT --> JIRA[Jira Cloud REST v3]
+    NAT --> SMTP[SMTP relay]
+```
+
+> Cloud Scheduler invokes the Cloud Run Job on a cron. The Job mounts
+> `config.yaml` + `feeds.yaml` from GCS, pulls secrets from Secret
+> Manager as env vars, calls Chronicle / Cloud Monitoring / Vertex AI
+> directly (all in the same GCP project), and ships logs to Cloud
+> Logging. The dotted **VPC + Cloud NAT** path is only used when Jira
+> has Network Allowlisting / NAC enabled — see [(Optional) Jira IP
+> allowlist (NAC) — egress routing](#optional-jira-ip-allowlist-nac--egress-routing)
+> below.
 
 ### What the gcloud flags do
 
@@ -603,7 +665,8 @@ LOCATION=us-central1,\
 CONFIG_PATH=/etc/feed-health/config.yaml,\
 FEEDS_PATH=/etc/feed-health/feeds.yaml,\
 JIRA_API_URL=https://<your-site>.atlassian.net/rest/api/3,\
-JIRA_USER_EMAIL=alerts@<your-domain> \
+JIRA_USER_EMAIL=alerts@<your-domain>,\
+JIRA_PROJECT_KEY=<your-jira-project-key> \
   --set-secrets=\
 CUSTOMER_ID=chronicle-customer-id:latest,\
 JIRA_API_KEY=jira-api-key:latest
@@ -618,6 +681,7 @@ Placeholders you must replace before running:
 | `$BUCKET`                                | shell variable set in step 4b                               |
 | `<your-site>` (in `JIRA_API_URL`)        | your Atlassian subdomain, e.g. `acme.atlassian.net`         |
 | `<your-domain>` (in `JIRA_USER_EMAIL`)   | the Atlassian account that owns the Jira API token          |
+| `<your-jira-project-key>`                | the Jira project key, e.g. `SECOPS` (Jira → project → Project settings → Details). Required when Jira is enabled — the app will not create tickets without it. |
 
 **Notes:**
 
@@ -647,6 +711,141 @@ Test it once:
 gcloud run jobs execute feed-health-monitor \
   --region=us-central1 --project=$PROJECT --wait
 ```
+
+### (Optional) Jira IP allowlist (NAC) — egress routing
+
+If your Atlassian Cloud site has **Network Allowlisting** enabled
+(Admin → Security → IP allowlists), the default Cloud Run egress
+IPs will be blocked. Common symptoms in Cloud Logging:
+
+- HTTP `401 Unauthorized` from the Jira `POST /issue` call even
+  though the API token is correct, or
+- the response body is the HTML "log in to continue" page instead
+  of JSON.
+
+You can confirm quickly by shelling into a Cloud Run revision (or
+just curl from any non-allowlisted IP):
+
+```bash
+curl -i -u "<email>:<token>" \
+  https://<your-site>.atlassian.net/rest/api/3/myself
+```
+
+If that returns `401` or HTML, NAC is the problem. To make the
+deployment work behind NAC, route the Cloud Run Job's egress
+through a **static IP** that you allowlist in Atlassian. Two options,
+cheapest first.
+
+#### Option A — Direct VPC egress + Cloud NAT (recommended, ~$5–10/mo)
+
+Direct VPC egress (GA in 2024) avoids the older Serverless VPC
+Access Connector's $30+/month minimum. You keep every Cloud Run
+benefit — managed runtime, Secret Manager mounts, integrated
+logging, free idle — for roughly the cost of one reserved IP.
+
+1. Create a VPC + subnet (or reuse an existing one) in your region:
+   ```bash
+   gcloud compute networks create feed-health-vpc \
+     --project=$PROJECT --subnet-mode=custom
+
+   gcloud compute networks subnets create feed-health-subnet \
+     --project=$PROJECT --network=feed-health-vpc \
+     --region=us-central1 --range=10.10.0.0/28
+   ```
+   `/28` is plenty — Direct VPC egress only consumes addresses for
+   active task instances, and a Cloud Run Job is one short-lived
+   task at a time.
+
+2. Reserve a static external IP for the NAT (this is the address
+   you will allowlist in Atlassian):
+   ```bash
+   gcloud compute addresses create feed-health-nat-ip \
+     --project=$PROJECT --region=us-central1
+
+   gcloud compute addresses describe feed-health-nat-ip \
+     --project=$PROJECT --region=us-central1 \
+     --format='value(address)'
+   ```
+   Write down the address that prints.
+
+3. Create a Cloud Router and attach a NAT gateway using that IP:
+   ```bash
+   gcloud compute routers create feed-health-router \
+     --project=$PROJECT \
+     --network=feed-health-vpc --region=us-central1
+
+   gcloud compute routers nats create feed-health-nat \
+     --project=$PROJECT --router=feed-health-router \
+     --region=us-central1 \
+     --nat-custom-subnet-ip-ranges=feed-health-subnet \
+     --nat-external-ip-pool=feed-health-nat-ip
+   ```
+
+4. Update the Cloud Run Job with Direct VPC egress flags
+   (everything else from step 5 stays the same):
+   ```bash
+   gcloud run jobs update feed-health-monitor \
+     --project=$PROJECT --region=us-central1 \
+     --network=feed-health-vpc \
+     --subnet=feed-health-subnet \
+     --vpc-egress=all-traffic
+   ```
+   `--vpc-egress=all-traffic` forces every outbound packet
+   (including `*.googleapis.com`) through the VPC, so the NAT IP
+   becomes the single egress for all traffic. With
+   `private-ranges-only`, Google API calls still go out via the
+   default public path — also fine, except hardened tenants
+   usually want everything pinned for audit reasons.
+
+5. Allowlist the NAT IP in Atlassian:
+   **Admin → Security → IP allowlists → Add** → paste the address
+   from step 2. (Some Atlassian plans label this "Network policy"
+   or "Allowed IP addresses".)
+
+6. Trigger the job and confirm Jira accepts the request:
+   ```bash
+   gcloud run jobs execute feed-health-monitor \
+     --project=$PROJECT --region=us-central1 --wait
+   ```
+   Successful Jira creates will appear in Cloud Logging; a continued
+   401 means the allowlist entry hasn't propagated yet (usually < 1
+   min) or the wrong IP was added.
+
+#### Option B — Compute Engine VM with a static IP
+
+If your org forbids Direct VPC egress for compliance reasons, or
+you'd rather not run a managed VPC at all, host the container on a
+small `e2-micro` Compute Engine VM scheduled via cron. You give up
+Cloud Run's managed benefits (auto-scaling, no idle cost,
+integrated retries) but gain a single fixed IP with no NAT setup.
+Roughly $5/month for the VM. Sketch:
+
+```bash
+# Reserve a static IP (skip if you already have one from Option A
+# step 2 — you can attach the same address to the VM).
+gcloud compute addresses create feed-health-vm-ip \
+  --project=$PROJECT --region=us-central1
+
+gcloud compute instances create feed-health-vm \
+  --project=$PROJECT --zone=us-central1-a \
+  --machine-type=e2-micro \
+  --image-family=debian-12 --image-project=debian-cloud \
+  --service-account=$SA \
+  --scopes=https://www.googleapis.com/auth/cloud-platform \
+  --address=$(gcloud compute addresses describe feed-health-vm-ip \
+    --region=us-central1 --format='value(address)')
+```
+
+Then SSH in, install Docker (or just Python + this repo's
+`requirements.txt`), pull `config.yaml` + `feeds.yaml` from your
+GCS bucket, and schedule via `crontab -e`. Secret Manager still
+works — wrap the run in a tiny script that does
+`export JIRA_API_KEY=$(gcloud secrets versions access latest --secret=jira-api-key)`
+right before `python -m app.main`, so secrets stay out of the VM
+disk.
+
+Allowlist the VM's static IP in Atlassian the same way as Option A
+step 5.
 
 ### 6. Schedule with Cloud Scheduler
 
@@ -767,12 +966,14 @@ gcloud run jobs update feed-health-monitor --image=...
 | `EMAIL_SMTP_PASSWORD`  | SMTP auth password (Secret Manager)                               | —                | optional (email action)                |
 | `TEST_NAMESPACE`       | Namespace used by `tests/test_connection.py` UDM probe            | `demo`           | —                                      |
 
-**Operator toggles (terminal/debug only — do NOT set on Cloud Run):**
+**Operator toggles** (terminal/debug only — do NOT set on Cloud Run
+except where the row says otherwise):
 
 | Variable                 | Description                                                                  |
 | ------------------------ | ---------------------------------------------------------------------------- |
 | `FEEDHEALTH_UNMASK`      | Set to `1` to disable identifier masking in terminal output. By default `project_id`, `customer_id`, feed UUIDs, log types and source settings are masked so logs are safe to share. |
 | `FEEDHEALTH_NO_CONFIRM`  | Set to `1` to skip the interactive confirmation prompt that fires when `log_level` is `DEBUG`. Already auto-skipped when stdin is not a TTY (cron, Cloud Run Job, CI). |
+| `FEEDHEALTH_ALLOW_FILE_SECRETS` | **(Cloud-Run-safe.)** Set to `1` to bypass the "secret in `variables.yaml`" warning prompt. On non-TTY runs (Cloud Run Job, cron, CI) this is the ONLY way to allow `customer_id` / `jira_api_key` / `email_smtp_username` / `email_smtp_password` to load from the file — otherwise the run aborts. Discouraged; intended for one-off migrations only. |
 
 Each env var, if set, takes precedence over the corresponding value in
 `variables.yaml`. On Cloud Run you can run with NO `variables.yaml` at
@@ -960,12 +1161,15 @@ Triggered ONLY for feeds that are still unhealthy after auto-restart
 
 **API token sourcing:**
 
-- `actions.jira.api_key` in `config.yaml`, OR
-- `jira_api_key` in `variables.yaml` (preferred — gitignored), OR
-- `JIRA_API_KEY` env var (preferred for Cloud Run / Secret Manager).
+- `JIRA_API_KEY` env var (required — env-var only; see
+  [Configure runtime variables](#3-configure-runtime-variables)).
+  `variables.yaml` triggers an interactive warning and Cloud Run /
+  cron refuses to start.
 
-Same applies to `actions.jira.api_url` ↔ `jira_api_url` in
-`variables.yaml`.
+`actions.jira.api_url` and `actions.jira.user_email` are not secrets
+and can come from `JIRA_API_URL` / `JIRA_USER_EMAIL` env vars,
+`jira_api_url` / `jira_user_email` in `variables.yaml`, or the
+corresponding fields in `config.yaml` (env > variables.yaml > config).
 
 **Required permissions:**
 
@@ -984,8 +1188,8 @@ Same applies to `actions.jira.api_url` ↔ `jira_api_url` in
 - `actions.jira.api_url`: `https://<your-site>.atlassian.net/rest/api/3`
   (or set `jira_api_url` in `variables.yaml`)
 - `actions.jira.user_email`: Atlassian account email
-- `actions.jira.api_key`: Atlassian API token (or set `jira_api_key` in
-  `variables.yaml`, or `JIRA_API_KEY` env var on Cloud Run)
+- `JIRA_API_KEY` env var: Atlassian API token (env-var only; see
+  "API token sourcing" above)
 - `actions.jira.project_key`: e.g. `SECOPS`
 - `actions.jira.issue_type`: e.g. `Task`, `Bug` (must match exactly an
   issue type that exists in the target project)
@@ -1049,11 +1253,11 @@ Stdlib `smtplib` only, no external mail providers.
   every unhealthy run sends an email in that case (no separate state
   store, by design).
 
-**Credential sourcing (NEVER read from `config.yaml`):**
+**Credential sourcing (env-var only):**
 
-- `EMAIL_SMTP_USERNAME` / `EMAIL_SMTP_PASSWORD` env vars (preferred
-  for Cloud Run + Secret Manager), OR
-- `email_smtp_username` / `email_smtp_password` in `variables.yaml`.
+- `EMAIL_SMTP_USERNAME` / `EMAIL_SMTP_PASSWORD` env vars. `variables.yaml`
+  triggers an interactive warning and Cloud Run / cron refuses to start.
+  See [Configure runtime variables](#3-configure-runtime-variables).
 
 Many internal relays accept allow-listed source IPs without auth —
 leave both unset in that case.

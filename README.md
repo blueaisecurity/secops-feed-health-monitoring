@@ -56,7 +56,12 @@ python -m app.main                         # one monitoring pass
 
 By default all outbound actions ship **disabled** — the first run is safe
 and only logs results. Edit `config.yaml` to enable Jira / email / the
-ingestion guardrail once credentials are in `variables.yaml`.
+ingestion guardrail once credentials are set. Secrets (`CUSTOMER_ID`,
+`JIRA_API_KEY`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`) must be set
+as **environment variables**, not stored in `variables.yaml` — the app
+warns and prompts for confirmation on every run if it finds any of them
+in the file, and refuses to start on Cloud Run / cron. See
+[REFERENCE.md](REFERENCE.md) for details.
 
 ## Configuration files
 
@@ -83,6 +88,10 @@ from a hardened GCS bucket, no JSON keys on disk. Full walkthrough in
 - `FEEDHEALTH_UNMASK=1` — show raw IDs in terminal output (terminal only,
   never on Cloud Run).
 - `FEEDHEALTH_NO_CONFIRM=1` — skip the DEBUG confirmation prompt.
+- `FEEDHEALTH_ALLOW_FILE_SECRETS=1` — bypass the "secret in `variables.yaml`"
+  warning without prompting. On Cloud Run / cron (non-TTY) this is the only
+  way to allow file-resident secrets to load. Discouraged; intended for
+  one-off migrations only.
 
 ## License
 

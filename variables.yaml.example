@@ -1,23 +1,38 @@
 # ============================================================
-# Sensitive Variables Template
+# Variables Template (non-secret values only)
 # ============================================================
 # Copy this file to variables.yaml and fill in your values:
 #   cp variables.yaml.example variables.yaml
 #
-# IMPORTANT: variables.yaml is gitignored — never commit secrets!
+# IMPORTANT: variables.yaml is gitignored — never commit it.
 #
-# Naming convention: every key here maps 1:1 to a value referenced
-# by config.yaml. The matching env-var name (used on Cloud Run +
-# Secret Manager) is shown next to each key. Env var > variables.yaml
-# > config.yaml fallback.
+# ┌──────────────────────────────────────────────────────────┐
+# │ SECRETS / TENANT IDS — MUST BE SET AS ENV VARS           │
+# │                                                          │
+# │   CUSTOMER_ID            Chronicle tenant UUID           │
+# │   JIRA_API_KEY           Atlassian API token             │
+# │   EMAIL_SMTP_USERNAME    SMTP user, if auth needed       │
+# │   EMAIL_SMTP_PASSWORD    SMTP password, if auth needed   │
+# │                                                          │
+# │ If any of these is found in variables.yaml the app will  │
+# │ warn and require interactive y/N confirmation; on Cloud  │
+# │ Run / cron (no TTY) it will refuse to start. Set them    │
+# │ via Secret Manager (--set-secrets=...) in production, or │
+# │ export them in your shell for local dev.                 │
+# │                                                          │
+# │ Emergency override (discouraged):                        │
+# │   FEEDHEALTH_ALLOW_FILE_SECRETS=1                        │
+# └──────────────────────────────────────────────────────────┘
+#
+# Resolution order for every key below:
+#   Env var > variables.yaml > config.yaml fallback.
 # ============================================================
 
 # ── Core GCP / Chronicle (required) ──
 project_id: "your-gcp-project-id"          # env: PROJECT_ID
-# customer_id is the Chronicle tenant UUID. Locally it can sit here, but in
-# production deploy it via Secret Manager (--set-secrets=CUSTOMER_ID=...) so
-# it does not appear in `gcloud run jobs describe` output or deploy history.
-customer_id: "your-chronicle-customer-id"  # env: CUSTOMER_ID
+# CUSTOMER_ID (Chronicle tenant UUID) is env-var only — see banner above.
+# Locally:   $env:CUSTOMER_ID="<uuid>"   (PowerShell) / export CUSTOMER_ID=...  (bash)
+# Cloud Run: --set-secrets=CUSTOMER_ID=chronicle-customer-id:latest
 region: "us"                               # env: REGION       (us, eu, asia-southeast1, ...)
 location: "us-central1"                    # env: LOCATION     (Vertex AI region; only needed if investigation.llm.enabled = true)
 
@@ -29,7 +44,10 @@ credentials_file: "C:\\path\\to\\your-service-account-key.json"  # env: CREDENTI
 # Credentials:
 jira_api_url: "https://your-site.atlassian.net/rest/api/3"  # env: JIRA_API_URL    (must be HTTPS)
 jira_user_email: "you@example.com"                          # env: JIRA_USER_EMAIL (Atlassian account email)
-jira_api_key: ""                                            # env: JIRA_API_KEY    (id.atlassian.com/manage-profile/security/api-tokens)
+# JIRA_API_KEY is env-var only — see banner above.
+#   Generate one at: https://id.atlassian.com/manage-profile/security/api-tokens
+#   Locally:   $env:JIRA_API_KEY="<token>"   /   export JIRA_API_KEY=...
+#   Cloud Run: --set-secrets=JIRA_API_KEY=jira-api-key:latest
 # Identifiers (kept here so config.yaml can be safely committed):
 jira_project_key: "SECOPS"                                  # env: JIRA_PROJECT_KEY - get it from your Jira Board
 # Auto-assignees — list of emails OR Atlassian accountIds. The app tries
@@ -46,8 +64,9 @@ email_from_address: "feed-health-monitor@example.com"       # env: EMAIL_FROM_AD
 email_recipients:                                           # env: EMAIL_RECIPIENTS (comma-separated)
   - "soc-team@example.com"
   - "secops-lead@example.com"
-# SMTP auth — leave both blank if your relay accepts mail from allow-listed
-# source IPs without authentication.
-email_smtp_username: ""                                     # env: EMAIL_SMTP_USERNAME
-email_smtp_password: ""                                     # env: EMAIL_SMTP_PASSWORD
+# EMAIL_SMTP_USERNAME / EMAIL_SMTP_PASSWORD are env-var only — see banner above.
+# Leave both unset if your relay accepts mail from allow-listed source IPs
+# without authentication. When set:
+#   Locally:   $env:EMAIL_SMTP_PASSWORD="<pw>"   /   export EMAIL_SMTP_PASSWORD=...
+#   Cloud Run: --set-secrets=EMAIL_SMTP_PASSWORD=email-smtp-password:latest
 
