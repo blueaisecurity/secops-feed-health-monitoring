@@ -1,4 +1,4 @@
-# Feed Health Monitoring
+ Feed Health Monitoring
 
 Auto-discovers Google SecOps (Chronicle) feeds, runs configurable health
 checks, and triggers actions when feeds go unhealthy — locally or as a
@@ -51,6 +51,11 @@ $env:CUSTOMER_ID="<chronicle-customer-uuid>"   # PowerShell
 # export CUSTOMER_ID="<chronicle-customer-uuid>"   # bash/zsh
 
 gcloud auth application-default login
+# Tell gcloud + ADC which project to bill API calls / quota against.
+# Without these, google-auth prints "no quota project" and "no project ID
+# could be determined" warnings on every run. Run once, persists.
+gcloud config set project <your-gcp-project-id>
+gcloud auth application-default set-quota-project <your-gcp-project-id>
 # Alternatives: impersonate a service account, or set
 # GOOGLE_APPLICATION_CREDENTIALS / credentials_file to a SA JSON key.
 # See REFERENCE.md (Provide GCP credentials) for options and the
