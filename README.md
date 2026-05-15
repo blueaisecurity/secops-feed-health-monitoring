@@ -44,11 +44,22 @@ pip install -r requirements.txt
 cp config.yaml.example     config.yaml       # tuning knobs + action toggles
 cp variables.yaml.example  variables.yaml    # fill in project_id, region (NOT customer_id — see below)
 
-# Required env var for the very first run. CUSTOMER_ID is env-var only
-# (the app will refuse to read it from variables.yaml). PROJECT_ID can
-# also be set here instead of in variables.yaml.
-$env:CUSTOMER_ID="<chronicle-customer-uuid>"   # PowerShell
-# export CUSTOMER_ID="<chronicle-customer-uuid>"   # bash/zsh
+# ── Required secrets — set as env vars, never in variables.yaml ──
+# CUSTOMER_ID is always required. The others only when the matching
+# action is enabled in config.yaml. PROJECT_ID can alternatively live
+# in variables.yaml instead of here.
+#
+# PowerShell:
+$env:CUSTOMER_ID="<chronicle-customer-uuid>"   # always required
+$env:JIRA_API_KEY="<atlassian-api-token>"      # if actions.jira.enabled = true
+$env:EMAIL_SMTP_USERNAME="<smtp-user>"         # if SMTP relay needs auth
+$env:EMAIL_SMTP_PASSWORD="<smtp-password>"     # if SMTP relay needs auth
+#
+# bash/zsh:
+# export CUSTOMER_ID="<chronicle-customer-uuid>"
+# export JIRA_API_KEY="<atlassian-api-token>"
+# export EMAIL_SMTP_USERNAME="<smtp-user>"
+# export EMAIL_SMTP_PASSWORD="<smtp-password>"
 
 gcloud auth application-default login
 # Tell gcloud + ADC which project to bill API calls / quota against.
