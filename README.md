@@ -52,14 +52,8 @@ cp variables.yaml.example  variables.yaml    # fill in project_id, region (NOT c
 # PowerShell:
 $env:CUSTOMER_ID="<chronicle-customer-uuid>"   # always required
 $env:JIRA_API_KEY="<atlassian-api-token>"      # if actions.jira.enabled = true
-$env:EMAIL_SMTP_USERNAME="<smtp-user>"         # if SMTP relay needs auth
-$env:EMAIL_SMTP_PASSWORD="<smtp-password>"     # if SMTP relay needs auth
-#
-# bash/zsh:
-# export CUSTOMER_ID="<chronicle-customer-uuid>"
-# export JIRA_API_KEY="<atlassian-api-token>"
-# export EMAIL_SMTP_USERNAME="<smtp-user>"
-# export EMAIL_SMTP_PASSWORD="<smtp-password>"
+#$env:EMAIL_SMTP_USERNAME="<smtp-user>"         # if SMTP relay needs auth - if enabled
+#$env:EMAIL_SMTP_PASSWORD="<smtp-password>"     # if SMTP relay needs auth - if enabled
 
 gcloud auth application-default login
 # Tell gcloud + ADC which project to bill API calls / quota against.
@@ -75,6 +69,15 @@ gcloud auth application-default set-quota-project <your-gcp-project-id>
 python .\tests\test_connection.py          # smoke test
 python -m app.sync_feeds                   # discover feeds
 python -m app.main                         # one monitoring pass
+
+#---Clean UP-----
+#clear var from shell 
+#Remove-Item env:CUSTOMER_ID
+#Remove-Item env:JIRA_API_KEY
+#Remove-Item env:EMAIL_SMTP_USERNAME  # if you set it
+#Remove-Item env:EMAIL_SMTP_PASSWORD  # if you set it
+
+#note: these env vars only exist for the lifetime of the current terminal session anyway — closing the window clears them automatically
 ```
 
 By default all outbound actions ship **disabled** — the first run is safe
