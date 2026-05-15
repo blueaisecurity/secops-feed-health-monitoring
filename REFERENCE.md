@@ -666,7 +666,8 @@ CONFIG_PATH=/etc/feed-health/config.yaml,\
 FEEDS_PATH=/etc/feed-health/feeds.yaml,\
 JIRA_API_URL=https://<your-site>.atlassian.net/rest/api/3,\
 JIRA_USER_EMAIL=alerts@<your-domain>,\
-JIRA_PROJECT_KEY=<your-jira-project-key> \
+JIRA_PROJECT_KEY=<your-jira-project-key>,\
+JIRA_ASSIGNEES=<assignee-email-1>,<assignee-email-2> \
   --set-secrets=\
 CUSTOMER_ID=chronicle-customer-id:latest,\
 JIRA_API_KEY=jira-api-key:latest
@@ -682,6 +683,7 @@ Placeholders you must replace before running:
 | `<your-site>` (in `JIRA_API_URL`)        | your Atlassian subdomain, e.g. `acme.atlassian.net`         |
 | `<your-domain>` (in `JIRA_USER_EMAIL`)   | the Atlassian account that owns the Jira API token          |
 | `<your-jira-project-key>`                | the Jira project key, e.g. `SECOPS` (Jira → project → Project settings → Details). Required when Jira is enabled — the app will not create tickets without it. |
+| `<assignee-email-*>` (in `JIRA_ASSIGNEES`) | Comma-separated list of Atlassian account emails (or `accountId`s) to auto-assign tickets to. Only required when `actions.jira.assign.enabled: true` in `config.yaml`. Omit the whole `JIRA_ASSIGNEES=...` entry if assignment is disabled. Jira Cloud assigns the **first** lookup that succeeds; the rest act as fallbacks. |
 
 **Notes:**
 
@@ -750,11 +752,25 @@ logging, free idle — for roughly the cost of one reserved IP.
 
    gcloud compute networks subnets create feed-health-subnet \
      --project=$PROJECT --network=feed-health-vpc \
-     --region=us-central1 --range=10.10.0.0/28
+     --region=us-central1 --range=10.10.0.0/26
    ```
-   `/28` is plenty — Direct VPC egress only consumes addresses for
-   active task instances, and a Cloud Run Job is one short-lived
-   task at a time.
+   Use `/26` (64 addresses). Although a single Cloud Run Job task
+   only needs one IP at a time, Direct VPC egress reserves a pool
+   per revision and `/28` (16 addresses) has been observed to fail
+   provisioning with errors like *"not enough IP addresses"* —
+   especially when the job is updated/redeployed and old + new
+   revisions briefly coexist.
+
+   **Already created the subnet as `/28`?** Expand it in place
+   without recreating (no downtime, no need to redeploy):
+   ```bash
+   gcloud compute networks subnets expand-ip-range feed-health-subnet \
+     --project=$PROJECT \
+     --region=us-central1 \
+     --prefix-length=26
+   ```
+   Note: `expand-ip-range` can only **grow** a subnet (smaller
+   prefix length = more addresses). It cannot shrink one.
 
 2. Reserve a static external IP for the NAT (this is the address
    you will allowlist in Atlassian):
