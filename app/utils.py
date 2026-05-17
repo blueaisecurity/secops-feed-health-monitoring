@@ -31,10 +31,33 @@ _SAFE_SETTINGS_KEYS = {
     "source_type",
 }
 
+# Module-level cache so the "ignored on non-TTY" warning fires at most once.
+_UNMASK_WARNED = False
+
 
 def unmask_enabled():
-    """True if the user has opted out of terminal masking."""
-    return os.environ.get(_UNMASK_ENV) == "1"
+    """True if the user has opted out of terminal masking.
+
+    Hard-restricted to interactive terminals: ``FEEDHEALTH_UNMASK=1`` is
+    silently ignored when stdout is not a TTY (Cloud Run Job, cron, CI,
+    redirected pipes). This prevents an operator who set the env var for a
+    local debug session from accidentally shipping unmasked IDs to Cloud
+    Logging if the same env list is re-used in a Cloud Run deploy.
+    """
+    import sys
+    global _UNMASK_WARNED
+    if os.environ.get(_UNMASK_ENV) != "1":
+        return False
+    if not sys.stdout.isatty():
+        if not _UNMASK_WARNED:
+            logger.warning(
+                "FEEDHEALTH_UNMASK=1 ignored: stdout is not a TTY "
+                "(non-interactive run — masking stays ON to keep identifiers "
+                "out of persistent logs)."
+            )
+            _UNMASK_WARNED = True
+        return False
+    return True
 
 
 def mask_id(value, keep=4):

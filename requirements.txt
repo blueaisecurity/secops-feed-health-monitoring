@@ -1,8 +1,17 @@
 # Pinned to versions verified against the venv used during development.
 # Bump deliberately; do not let `pip install -U` silently change majors.
-secops==0.41.0
+#
+# Last reviewed: 2026-05-17
+#   - secops 0.44.0: additive changes only since 0.41.0
+#     (fetch_parser_candidates, case-mgmt return-type fix, Credentials
+#     token auth, usage-tracking header). No feed-API surface changes.
+#   - google-genai 2.0.1: the 2.0.0 breaking changes apply to the
+#     Interactions API only — GenerateContent (what this app uses) is
+#     explicitly unaffected per the release notes. 1.74.0 dropped
+#     Python 3.9; we're on 3.12 so OK.
+secops==0.44.0
 google-cloud-monitoring==2.30.0
-google-genai==1.72.0
+google-genai==2.0.1
 PyYAML==6.0.3
 requests==2.33.1
 functions-framework==3.10.1

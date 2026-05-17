@@ -118,6 +118,16 @@ Secret Manager (`--set-secrets`), `config.yaml` + `feeds.yaml` mounted
 from a hardened GCS bucket, no JSON keys on disk. Full walkthrough in
 [REFERENCE.md → Setup — Cloud Run](REFERENCE.md#setup--cloud-run-production).
 
+> **Resource names in the deploy walkthrough are examples, not
+> requirements.** `feed-health-sa`, `feed-health-config-<project>`,
+> `jira-api-key`, `feed-health-monitor`, `feed-health-vpc`, etc. are
+> conventions. Using them verbatim makes your deployment guessable to
+> anyone who knows the project ID. Before deploying to production,
+> read [REFERENCE.md → Hardening](REFERENCE.md#hardening--defense-in-depth)
+> — most importantly, append random entropy to the GCS bucket name
+> and pin the container image by digest (`@sha256:…`) instead of
+> `:latest`.
+
 ## Operator env vars
 
 - `FEEDHEALTH_UNMASK=1` — show raw IDs in terminal output (terminal only,

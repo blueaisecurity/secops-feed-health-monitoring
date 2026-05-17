@@ -382,6 +382,19 @@ def _write_feeds(feeds, feeds_path):
             pass
     os.replace(tmp_path, feeds_path)
 
+    # Restrict to owner-only on POSIX. feeds.yaml carries Chronicle
+    # instance UUID, feed UUIDs, source endpoints and team metadata —
+    # default umask (often 022 → mode 0644) would leave it readable by
+    # every local user. Skipped on Windows where st_mode is not
+    # meaningful (NTFS uses ACLs) and on read-only mounts where chmod
+    # raises PermissionError — the GCS-mounted Cloud Run path is
+    # already read-only via --readonly=true on the volume mount.
+    if os.name != "nt":
+        try:
+            os.chmod(feeds_path, 0o600)
+        except OSError as e:
+            logger.debug(f"Could not chmod {feeds_path} to 0600: {e}")
+
     logger.info(f"✅ Feeds written to {feeds_path}")
 
 

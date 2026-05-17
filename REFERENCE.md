@@ -24,6 +24,7 @@
 - [Granular permissions](#granular-permissions-for-custom-roles--least-privilege)
 - [Auto-restart](#auto-restart)
 - [Auto-sync](#auto-sync)
+- [Hardening / defense in depth](#hardening--defense-in-depth)
 - [Debug notes](#debug-notes)
 
 ## Overview
@@ -398,6 +399,18 @@ The deploy uses NO local files for secrets:
 - **secrets and identifying IDs** → Secret Manager bound via `--set-secrets`
 - **GCP auth** → runtime service account (no JSON key)
 
+> **The resource names in this guide are examples, not requirements.**
+> Every name below (`feed-health-sa`, `feed-health-config-<project>`,
+> `jira-api-key`, `feed-health-monitor`, `feed-health-vpc`, …) is just
+> a convention. Using the same names everyone else uses gives attackers
+> who only know your project ID a free map of your deployment
+> (service-account email, bucket name, Secret Manager secret names,
+> image path, scheduler job name). See
+> [Hardening](#hardening--defense-in-depth) at the end of this document
+> for concrete suggestions — most notably, append a random suffix to
+> the GCS bucket name (`feed-health-config-<project>-<random8>`) to
+> defeat bucket-existence probing.
+
 ### Architecture
 
 ```mermaid
@@ -453,6 +466,12 @@ Manager too, to keep it out of `describe` output.
 PROJECT=<your-gcp-project-id>                # e.g. my-secops-project
 SA=feed-health-sa@${PROJECT}.iam.gserviceaccount.com
 
+# The SA email itself is necessarily predictable (it's derived from
+# the account ID + project). Don't fight that with a cryptic email;
+# instead use a clear --display-name so admins can identify the SA
+# in the Cloud Console, and rely on least-privilege IAM (below) to
+# limit blast radius if the SA is targeted. A vague or misleading
+# display name just makes it harder for *you* to audit later.
 gcloud iam service-accounts create feed-health-sa \
   --project=$PROJECT \
   --display-name="Feed Health Monitor"
@@ -566,6 +585,27 @@ done
 `--set-env-vars` instead (shown in step 5). Create them as secrets too if
 you prefer; the precedence rules in `app/config.py` accept either source.
 
+> **JIRA_API_URL and JIRA_USER_EMAIL are visible in `describe` output.**
+> Both are passed as `--set-env-vars` in this guide and therefore appear
+> verbatim in `gcloud run jobs describe`, the Cloud Console UI, and the
+> shell history of whoever ran the deploy. Neither is a credential, but
+> together they reveal your Atlassian tenant subdomain and a real
+> service account email — useful reconnaissance for phishing. If your
+> threat model includes someone with read-only `roles/run.viewer` on
+> the project, store both in Secret Manager too and bind them via
+> `--set-secrets` (the app's resolution order accepts either source).
+
+> **Pin secret versions for high-impact secrets.** This guide uses
+> `secret-name:latest` for ergonomics (rotation just creates a new
+> version and the next run picks it up). The trade-off: anyone who
+> gains `secretmanager.versions.add` on a secret can inject a
+> malicious value that takes effect on the very next run, with no
+> deploy required. For `jira-api-key` and `chronicle-customer-id`
+> in a hardened environment, pin to an explicit version
+> (`jira-api-key:7`) and treat rotation as a deploy-gated change —
+> bump the version pin in the same change that adds the new version,
+> and let code review catch unexpected bumps.
+
 ### 4. Build and push the container image
 
 The repo ships a production-ready Dockerfile (`python:3.12-slim`,
@@ -605,6 +645,40 @@ gcloud artifacts repositories create feed-health \
 > up a Cloud Build GitHub trigger that builds straight from the repo on
 > every push.
 
+> **Build context warning.** `gcloud builds submit` uploads the entire
+> working directory as the build context (subject to `.dockerignore`).
+> If you run it from a directory containing real `variables.yaml`,
+> `feeds.yaml`, `config.yaml`, or a service-account JSON key, those
+> files are uploaded to Cloud Build's staging bucket — even if
+> `.dockerignore` keeps them out of the final image. Verify
+> `.dockerignore` excludes `variables.yaml`, `feeds.yaml`,
+> `config.yaml`, `*.json` (or whatever pattern your SA key uses), and
+> `creds/` before the first build, and re-verify after any local edit.
+> Cloud Build staging buckets are project-scoped but readable by anyone
+> with `roles/storage.objectViewer` on the build bucket.
+
+> **Pin the image by digest in production.** Once the build finishes,
+> capture the resulting digest and reference it everywhere downstream
+> instead of `:latest`. A tag is a mutable pointer — anyone with
+> `roles/artifactregistry.writer` on this repo can overwrite
+> `monitor:latest` and your next scheduled run will pull the new image
+> with zero deploy activity. A digest is immutable.
+>
+> ```bash
+> # Resolve the digest of the image you just pushed and pin it.
+> DIGEST=$(gcloud artifacts docker images describe \
+>   us-central1-docker.pkg.dev/$PROJECT/feed-health/monitor:latest \
+>   --format='value(image_summary.digest)' --project=$PROJECT)
+> IMAGE=us-central1-docker.pkg.dev/$PROJECT/feed-health/monitor@${DIGEST}
+> echo "Pinned image: $IMAGE"
+> ```
+>
+> Use `$IMAGE` (not the `:latest` tag) in the `--image=` flag of
+> step 5 below, and update the pin deliberately on each release.
+> For even stronger guarantees, enable
+> [Binary Authorization](https://cloud.google.com/binary-authorization)
+> and require attestations signed by your build pipeline.
+
 ### 4b. Create the GCS bucket for `config.yaml` + `feeds.yaml` (hardened)
 
 Both files live in the same bucket and are read-only at runtime.
@@ -612,9 +686,31 @@ Both files live in the same bucket and are read-only at runtime.
 endpoints, team metadata). `config.yaml` is less sensitive but still
 environment-specific. Treat the bucket like a secret store.
 
-```bash
-BUCKET=feed-health-config-$PROJECT
+> **Use a random suffix in the bucket name.** GCS bucket names live in
+> a *global* namespace, which means an attacker who guesses your GCP
+> project ID can probe for a bucket named
+> `feed-health-config-<project>` from anywhere on the internet. They
+> can't read the contents (public-access-prevention + uniform IAM
+> block that), but they can confirm the bucket exists from the HTTP
+> status code — which tells them you run this app and gives them the
+> project ID, the SA naming convention, and likely Secret Manager
+> secret names to try if they ever get an IAM toehold. Defeat this
+> by appending 8–12 random characters:
+>
+> ```bash
+> # Add entropy that an attacker cannot guess from the project ID alone.
+> BUCKET=feed-health-config-$PROJECT-$(openssl rand -hex 4)   # e.g. -a3f9b21c
+> echo "BUCKET=$BUCKET"   # write this down — you'll need it on every deploy/update
+> ```
+>
+> PowerShell equivalent:
+>
+> ```powershell
+> $suffix = -join ((48..57 + 97..102) | Get-Random -Count 8 | ForEach-Object {[char]$_})
+> $BUCKET = "feed-health-config-$PROJECT-$suffix"
+> ```
 
+```bash
 gcloud storage buckets create gs://$BUCKET \
   --project=$PROJECT \
   --location=us-central1 \
@@ -634,19 +730,41 @@ gcloud storage cp config.yaml gs://$BUCKET/config.yaml
 gcloud storage cp feeds.yaml  gs://$BUCKET/feeds.yaml
 ```
 
-Optional but recommended:
+**Recommended hardening (do these by default, not just for high-sensitivity
+deployments):**
 
-- Enable Data Access audit logs for `storage.googleapis.com` on the
-  project so reads of `config.yaml` / `feeds.yaml` are logged.
-- Encrypt with a CMEK from Cloud KMS
-  (`--default-kms-key=projects/.../cryptoKeys/...`).
-- Add a lifecycle rule deleting noncurrent versions after N days.
+- **Enable Data Access audit logs** for `storage.googleapis.com` on the
+  project so reads of `config.yaml` / `feeds.yaml` are logged. This bucket
+  holds your feed inventory — unaudited reads would mean a credential
+  leak that exposed the contents is invisible after the fact.
+  ```bash
+  # In your project's audit-config (project IAM → Audit Logs), enable
+  # DATA_READ for storage.googleapis.com, scoped to this bucket if you
+  # want to limit log volume.
+  ```
+- **Encrypt with a CMEK from Cloud KMS** so key rotation / disablement
+  is a separate control path from the bucket IAM. Without CMEK, the
+  bucket is encrypted with a Google-managed key you cannot rotate.
+  ```bash
+  gcloud storage buckets update gs://$BUCKET \
+    --default-kms-key=projects/$PROJECT/locations/us-central1/keyRings/<ring>/cryptoKeys/<key>
+  ```
+- **Add a lifecycle rule** deleting noncurrent versions after N days
+  (e.g. 30) so the GCS versioning trail doesn't grow without bound.
 
 ### 5. Deploy the Cloud Run Job
 
 The values you supply are tagged inline with `# ← REPLACE ME` so it's
 obvious which ones come from your environment. The placeholders are
 also shown one more time below the command.
+
+> **Use the digest you pinned in step 4 for `--image=`.** The example
+> below shows `:latest` purely for readability. In production replace
+> the `--image=...:latest` line with
+> `--image=$IMAGE` (the `@sha256:...` value you captured in step 4) so
+> a tampered tag cannot silently change what runs on the next schedule.
+> See [Pin the image by digest in production](#4-build-and-push-the-container-image)
+> above.
 
 ```bash
 gcloud run jobs deploy feed-health-monitor \
@@ -876,11 +994,42 @@ gcloud scheduler jobs create http feed-health-cron \
   --oauth-service-account-email=$SA
 ```
 
-The Scheduler SA also needs `roles/run.invoker` on the job.
+The Scheduler SA also needs `roles/run.invoker` on the job. Bind it
+**scoped to this job only** — do not grant `roles/run.invoker` at the
+project level, and *never* grant it to `allUsers` or
+`allAuthenticatedUsers`:
 
-Until per-feed auto-restart cooldown is implemented, keep the schedule
-sparse (every 30–60 min). A permanently broken feed will otherwise be
-disable→re-enabled on every tick.
+```bash
+# Scope the invoker binding to this specific job, not the whole project.
+gcloud run jobs add-iam-policy-binding feed-health-monitor \
+  --project=$PROJECT --region=us-central1 \
+  --member="serviceAccount:$SA" \
+  --role="roles/run.invoker"
+```
+
+Audit the binding after each deploy to confirm no broad principals
+(e.g. `allUsers`, `allAuthenticatedUsers`, or wide groups) have been
+added:
+
+```bash
+gcloud run jobs get-iam-policy feed-health-monitor \
+  --project=$PROJECT --region=us-central1
+```
+
+> **About `run.developer` / `run.admin`.** Anyone with these roles on
+> the job can override `--set-env-vars` at deploy time — including
+> swapping `CUSTOMER_ID` to a different secret reference or pointing
+> `CONFIG_PATH` at an attacker-controlled path. Treat them like
+> Owner. Bind only to deployers, audit with a Cloud Logging alert
+> on `protoPayload.methodName="google.cloud.run.v2.Jobs.UpdateJob"`.
+
+**Auto-restart amplification — known limitation.** Per-feed restart
+cooldown is not yet implemented. A permanently broken feed will be
+disable→re-enabled on every run, plus emit Jira tickets / emails /
+LLM calls. Keep the Cloud Scheduler cadence sparse (every 30–60 min)
+until cooldown lands — a hostile party who can flip a feed unhealthy
+(by stopping a source they control) could otherwise drive
+Vertex AI + Jira spend up at your expense. Tracked as an open issue.
 
 ### 7. Updating config or the feed list in production
 
@@ -987,9 +1136,9 @@ except where the row says otherwise):
 
 | Variable                 | Description                                                                  |
 | ------------------------ | ---------------------------------------------------------------------------- |
-| `FEEDHEALTH_UNMASK`      | Set to `1` to disable identifier masking in terminal output. By default `project_id`, `customer_id`, feed UUIDs, log types and source settings are masked so logs are safe to share. |
+| `FEEDHEALTH_UNMASK`      | Set to `1` to disable identifier masking in terminal output. By default `project_id`, `customer_id`, feed UUIDs, log types and source settings are masked so logs are safe to share. **Silently ignored when stdout is not a TTY** (Cloud Run Job, cron, CI, redirected pipes) — the app logs a one-time WARNING and keeps masking on so identifiers do not leak into Cloud Logging if the same env list is re-used in production. |
 | `FEEDHEALTH_NO_CONFIRM`  | Set to `1` to skip the interactive confirmation prompt that fires when `log_level` is `DEBUG`. Already auto-skipped when stdin is not a TTY (cron, Cloud Run Job, CI). |
-| `FEEDHEALTH_ALLOW_FILE_SECRETS` | **(Cloud-Run-safe.)** Set to `1` to bypass the "secret in `variables.yaml`" warning prompt. On non-TTY runs (Cloud Run Job, cron, CI) this is the ONLY way to allow `customer_id` / `jira_api_key` / `email_smtp_username` / `email_smtp_password` to load from the file — otherwise the run aborts. Discouraged; intended for one-off migrations only. |
+| `FEEDHEALTH_ALLOW_FILE_SECRETS` | **(Cloud-Run-safe.)** Set to `1` to bypass the "secret in `variables.yaml`" warning prompt. On non-TTY runs (Cloud Run Job, cron, CI) this is the ONLY way to allow `customer_id` / `jira_api_key` / `email_smtp_username` / `email_smtp_password` to load from the file — otherwise the run aborts. **Logs at ERROR severity on every run** when active, so a Cloud Logging alert on `severity>=ERROR` will catch a forgotten bypass. Discouraged; intended for one-off migrations only. |
 
 Each env var, if set, takes precedence over the corresponding value in
 `variables.yaml`. On Cloud Run you can run with NO `variables.yaml` at
@@ -1626,6 +1775,46 @@ If you do NOT use the `llm` action, omit `roles/aiplatform.user`.
 If you run locally with `variables.yaml`, omit `storage.objectViewer`
 and `secretmanager.secretAccessor`.
 
+### True least-privilege — custom role recommendation
+
+`roles/chronicle.editor` and `roles/aiplatform.user` are convenient but
+grant more than this app needs. For a hardened deployment, build a
+custom role from the granular permissions in the
+[next section](#granular-permissions-for-custom-roles--least-privilege)
+and grant *that* instead. Sketch:
+
+```bash
+# Save the spec to a YAML file, then create the role.
+cat > feed-health-role.yaml <<'EOF'
+title: Feed Health Monitor (least privilege)
+description: Exactly the permissions feed-health-monitoring calls.
+stage: GA
+includedPermissions:
+  - chronicle.feeds.list
+  - chronicle.feeds.get
+  - chronicle.feeds.update          # only if auto_restart enabled
+  - chronicle.feeds.enable          # only if auto_restart enabled
+  - chronicle.feeds.disable         # only if auto_restart enabled
+  - chronicle.legacies.legacyRunUdmQuery
+  - monitoring.timeSeries.list
+  - monitoring.metricDescriptors.list
+  - aiplatform.endpoints.predict    # only if llm action enabled
+EOF
+
+gcloud iam roles create feedHealthMonitor \
+  --project=$PROJECT --file=feed-health-role.yaml
+
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member="serviceAccount:$SA" \
+  --role="projects/$PROJECT/roles/feedHealthMonitor"
+```
+
+Then drop `roles/chronicle.editor`, `roles/monitoring.viewer`, and
+`roles/aiplatform.user` from the SA. Keep
+`roles/storage.objectViewer` (bucket-scoped) and
+`roles/secretmanager.secretAccessor` (secret-scoped) as-is — those
+are already narrow.
+
 **APIs to enable on the project:**
 
 - `chronicle.googleapis.com`
@@ -1734,12 +1923,146 @@ latest feed list from Chronicle into `feeds.yaml` before checks run.
 that already exists in `feeds.yaml`. The `new_feeds_enabled` setting
 only affects feeds discovered for the first time.
 
+## Hardening / defense in depth
+
+The defaults in this guide work, but assume a single-tenant project
+with trusted operators. A consolidated checklist of what to tighten
+for a hardened deployment — in roughly decreasing order of impact.
+
+### Reconnaissance reduction (resource naming)
+
+The example names in this document (`feed-health-sa`,
+`feed-health-config-<project>`, `jira-api-key`,
+`feed-health-monitor`, `feed-health-vpc`, …) are a *convention*, not a
+requirement. Using them as-is gives anyone who knows your project ID a
+free map: the SA email is derivable, the GCS bucket name is
+verifiable from the public internet, the Secret Manager secret names
+are two well-known strings, and the image / job / scheduler / NAT-IP
+names are predictable.
+
+Obscurity is not a control. But forcing an attacker to enumerate
+rather than guess raises the cost meaningfully — enumeration is
+noisy and usually requires a foothold the recon step is meant to
+find. Concrete actions:
+
+- **GCS bucket** — append 8+ random hex chars
+  (`feed-health-config-<project>-<random8>`). See
+  [step 4b](#4b-create-the-gcs-bucket-for-configyaml--feedsyaml-hardened).
+  Defeats unauthenticated bucket existence probing across the global
+  bucket namespace.
+- **Secret Manager secrets** — don't use `jira-api-key` /
+  `chronicle-customer-id` verbatim. Prefix with a per-environment
+  string (e.g. `prod-7a3f-jira-api-key`). An attacker who lands
+  `secretmanager.secrets.list` on the project still needs to find
+  them; an attacker who only knows the project ID gets nothing.
+- **Service account** — the email is derived from the account ID +
+  project, so any cryptic ID hurts your own auditing more than it
+  hurts an attacker. Keep `feed-health-sa@…` *but* enforce least
+  privilege (custom role above) and avoid granting `Token Creator`
+  / `Service Account User` on it broadly.
+- **NAT IP / VPC / subnet** — anyone with read access to
+  `compute.addresses` in the project can pull `feed-health-nat-ip`
+  and learn the static egress IP. There is no fix — a static IP is
+  intentionally enumerable — but be aware that this IP is
+  reconnaissance-grade data for anyone correlating outbound traffic
+  seen in Jira / SMTP / partner logs back to your tenant. Audit who
+  has `compute.viewer` on the project.
+
+### Supply chain
+
+- **Pin the image by digest** in production deploys (see
+  [step 4](#4-build-and-push-the-container-image)). A tag is a
+  mutable pointer; a digest is immutable. Anyone with
+  `roles/artifactregistry.writer` on the repo can overwrite
+  `monitor:latest` and the next scheduled run pulls the new image
+  with no deploy.
+- **Pin Secret Manager versions** for high-impact secrets
+  (`jira-api-key:7` rather than `:latest`). Treat rotation as a
+  deploy-gated change. See
+  [step 3](#grant-the-runtime-sa-access-to-each-secret).
+- **Enable Artifact Registry vulnerability scanning** on the
+  `feed-health` repo so CVEs in pinned base images surface in the
+  Cloud Console (and via the Container Analysis API). It's a single
+  click in the Cloud Console under
+  *Artifact Registry → Settings → Vulnerability scanning*.
+- **Use `--require-hashes` for `requirements.txt`.** The repo pins
+  versions but does not enforce hashes, so a malicious republish of
+  any pinned package version would be installed unchecked. To
+  upgrade in place:
+  ```bash
+  pip install pip-tools
+  pip-compile --generate-hashes --output-file requirements.txt requirements.in
+  # then in the Dockerfile:
+  #   RUN pip install --require-hashes -r requirements.txt
+  ```
+  Combined with Cloud Build provenance + Binary Authorization this
+  removes "silently upgraded dependency" as a supply-chain vector.
+- **Enable [Binary Authorization](https://cloud.google.com/binary-authorization)**
+  on the Cloud Run Job and require attestations signed by your build
+  pipeline. Belt-and-braces with digest pinning.
+
+### Audit + detection
+
+- **Cloud Logging alert on `severity>=ERROR`** for
+  `resource.type="cloud_run_job"` (already recommended in
+  [Observability](#8-observability)). This also catches the
+  `FEEDHEALTH_ALLOW_FILE_SECRETS=1` bypass, which now logs at ERROR.
+- **Cloud Logging alert on Cloud Run Job updates** so silent
+  redeploys are visible:
+  ```
+  resource.type="cloud_run_job"
+  protoPayload.methodName="google.cloud.run.v2.Jobs.UpdateJob"
+  ```
+- **Cloud Logging alert on Secret Manager version adds** for the
+  app's secrets — anyone with `secretmanager.versions.add` can
+  inject a value that takes effect on the next run when `:latest`
+  pinning is used. Pin versions and you can replace this with an
+  alert on "new version not deployed within N hours".
+- **Data Access audit logs for `storage.googleapis.com`** scoped to
+  the config bucket (see
+  [step 4b](#4b-create-the-gcs-bucket-for-configyaml--feedsyaml-hardened)).
+- **CMEK on the config bucket**, same step. Lets you revoke decrypt
+  via KMS as an independent kill switch.
+
+### IAM
+
+- **Custom least-privilege role** instead of `roles/chronicle.editor`
+  + `roles/aiplatform.user`. See
+  [True least-privilege — custom role recommendation](#true-least-privilege--custom-role-recommendation).
+- **Job-scoped `run.invoker` binding**, not project-scoped, and
+  never `allUsers` / `allAuthenticatedUsers`. See
+  [step 6](#6-schedule-with-cloud-scheduler).
+- **Audit `run.developer` / `run.admin`** — anyone with these can
+  override env vars at deploy time, effectively swapping credentials
+  or pointing `CONFIG_PATH` at attacker-controlled data.
+
+### Operational
+
+- **Auto-restart cooldown** is a known gap. Until it lands, keep the
+  Cloud Scheduler cadence at 30–60 min so a permanently broken feed
+  doesn't generate a Jira ticket / LLM call / restart attempt every
+  tick. See [step 6](#6-schedule-with-cloud-scheduler).
+- **`FEEDHEALTH_UNMASK=1` is now TTY-gated.** Setting it on Cloud Run
+  is silently ignored (with a one-time WARNING) so an env-var list
+  copied from a debug shell can't accidentally unmask identifiers
+  into Cloud Logging.
+- **Rotate the Atlassian API token** on the same cadence as any
+  other long-lived credential. The bearer of `JIRA_API_KEY` can
+  create / edit / assign tickets in the target project on behalf of
+  the `JIRA_USER_EMAIL` account, including from any IP the token's
+  account is allowed from.
+
 ## Debug notes
 
-- `checks.py` currently dumps the full raw feed JSON from the
-  Chronicle API for EVERY feed (healthy at INFO, unhealthy at
-  WARNING). Search for `TEMP/DEBUG` in `checks.py` to revert to
-  unhealthy-only dumping.
+- Raw Chronicle feed JSON is dumped at DEBUG level only (gated by
+  `logger.isEnabledFor(logging.DEBUG)` in `checks.py`). Identifiers inside
+  the JSON are masked unless `FEEDHEALTH_UNMASK=1` is set, and high-signal
+  source-settings values (Event Hub namespaces, S3 URIs, hostnames, etc.)
+  are scrubbed via the same `_deep_redact` helper used for the LLM prompt.
+  Use `log_level: DEBUG` in `config.yaml` to enable.
 - LLM output is written to stderr with line-wrapping at 70 chars.
 - `variables.yaml`, `config.yaml`, `feeds.yaml`, and `creds/` are
   gitignored — never commit credentials.
+- `feeds.yaml` is `chmod 0600` automatically on every `sync_feeds` write
+  on POSIX (skipped on Windows where st_mode is not meaningful, and on
+  read-only mounts such as the Cloud Run GCS volume).

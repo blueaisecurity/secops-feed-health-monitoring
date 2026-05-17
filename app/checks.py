@@ -304,6 +304,15 @@ def check_gcp_metrics(config, feed_config, feeds_cache=None):
     # Note: `log_type` is a label on the chronicle.googleapis.com/Collector
     # RESOURCE (not on the metric itself), so it must be filtered with
     # `resource.labels.log_type`. `namespace` and `feed_id` are metric labels.
+    #
+    # SECURITY: `id_value`, `data_type` and `namespace` below are interpolated
+    # into the Cloud Monitoring filter / UDM query strings without escaping.
+    # These values come from feeds.yaml (operator-controlled, or written by
+    # sync_feeds from Chronicle API responses). The APIs they reach are
+    # READ-ONLY for this SA — worst case is a malformed filter / empty
+    # result, not a write side-effect. Do NOT extend this pattern to any
+    # write API (e.g. UDM rule create, Chronicle alert mutation) without
+    # adding proper escaping for the target query language first.
     if id_type == "namespace" and id_value:
         metric_filter = f'{base_filter} AND metric.labels.namespace = "{id_value}"'
     elif id_type == "log_type" and id_value:

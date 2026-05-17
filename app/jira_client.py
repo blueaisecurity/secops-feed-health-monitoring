@@ -20,6 +20,31 @@ logger = logging.getLogger(__name__)
 # Path to the on-disk secrets file (only read if the matching env var is unset).
 _VARIABLES_FILE = "variables.yaml"
 
+# Cache the parsed variables.yaml at module scope. The file is immutable for
+# the lifetime of a run (config.py loads it once at startup), so re-parsing
+# it on every Jira call — twice per unhealthy feed when dedupe is on — is
+# pure waste. Env vars are still resolved fresh on each call so test
+# overrides and Cloud Run env updates still take effect.
+_FILE_VARS_SENTINEL = object()
+_file_vars_cache = _FILE_VARS_SENTINEL
+
+
+def _get_file_vars():
+    """Return the parsed contents of variables.yaml, cached at module scope."""
+    global _file_vars_cache
+    if _file_vars_cache is _FILE_VARS_SENTINEL:
+        if os.path.exists(_VARIABLES_FILE):
+            try:
+                import yaml
+                with open(_VARIABLES_FILE, "r", encoding="utf-8") as f:
+                    _file_vars_cache = yaml.safe_load(f) or {}
+            except Exception as e:
+                logger.warning(f"  🎫 [JIRA] Could not read {_VARIABLES_FILE}: {e}")
+                _file_vars_cache = {}
+        else:
+            _file_vars_cache = {}
+    return _file_vars_cache
+
 
 def _load_jira_secrets():
     """
@@ -32,14 +57,7 @@ def _load_jira_secrets():
     Secrets are NOT read from the main config dict — keeps them out of any
     object that may be logged or passed to the LLM.
     """
-    file_vars = {}
-    if os.path.exists(_VARIABLES_FILE):
-        try:
-            import yaml
-            with open(_VARIABLES_FILE, "r", encoding="utf-8") as f:
-                file_vars = yaml.safe_load(f) or {}
-        except Exception as e:
-            logger.warning(f"  🎫 [JIRA] Could not read {_VARIABLES_FILE}: {e}")
+    file_vars = _get_file_vars()
 
     return {
         "api_key":    os.environ.get("JIRA_API_KEY")    or file_vars.get("jira_api_key", ""),

@@ -19,6 +19,30 @@ logger = logging.getLogger(__name__)
 
 _VARIABLES_FILE = "variables.yaml"
 
+# Cache the parsed variables.yaml at module scope — the file is immutable
+# for the lifetime of a run (config.py loads it once at startup), so
+# re-parsing it on every email send is pure waste. Env vars are still
+# resolved fresh on each call so test overrides keep working.
+_FILE_VARS_SENTINEL = object()
+_file_vars_cache = _FILE_VARS_SENTINEL
+
+
+def _get_file_vars():
+    """Return the parsed contents of variables.yaml, cached at module scope."""
+    global _file_vars_cache
+    if _file_vars_cache is _FILE_VARS_SENTINEL:
+        if os.path.exists(_VARIABLES_FILE):
+            try:
+                import yaml
+                with open(_VARIABLES_FILE, "r", encoding="utf-8") as f:
+                    _file_vars_cache = yaml.safe_load(f) or {}
+            except Exception as e:
+                logger.warning(f"  📧 [EMAIL] Could not read {_VARIABLES_FILE}: {e}")
+                _file_vars_cache = {}
+        else:
+            _file_vars_cache = {}
+    return _file_vars_cache
+
 
 def _load_email_secrets():
     """
@@ -31,14 +55,7 @@ def _load_email_secrets():
     Username/password are kept out of the main config dict so they are never
     serialised into log lines or LLM prompts.
     """
-    file_vars = {}
-    if os.path.exists(_VARIABLES_FILE):
-        try:
-            import yaml
-            with open(_VARIABLES_FILE, "r", encoding="utf-8") as f:
-                file_vars = yaml.safe_load(f) or {}
-        except Exception as e:
-            logger.warning(f"  📧 [EMAIL] Could not read {_VARIABLES_FILE}: {e}")
+    file_vars = _get_file_vars()
 
     return {
         "username": os.environ.get("EMAIL_SMTP_USERNAME") or file_vars.get("email_smtp_username", ""),

@@ -103,8 +103,14 @@ def _guard_file_secrets(file_vars, variables_path):
     logger.warning("\n%s", banner)
 
     if os.environ.get("FEEDHEALTH_ALLOW_FILE_SECRETS") == "1":
-        logger.warning(
-            "FEEDHEALTH_ALLOW_FILE_SECRETS=1 - proceeding with file-resident secrets."
+        # Log at ERROR severity so Cloud Logging alert policies that watch
+        # for severity>=ERROR catch this bypass on every run. The bypass is
+        # intentional but should never be invisible in production.
+        logger.error(
+            "FEEDHEALTH_ALLOW_FILE_SECRETS=1 \u2014 bypassing file-secret guard; "
+            "loading from %s verbatim: %s. This is intended for one-off "
+            "migrations only \u2014 move these to env vars / Secret Manager.",
+            variables_path, ", ".join(offenders),
         )
         return
 

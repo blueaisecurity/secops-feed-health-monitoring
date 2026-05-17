@@ -1,4 +1,14 @@
 # syntax=docker/dockerfile:1.7
+#
+# Base image. The floating `python:3.12-slim` tag is convenient for
+# local builds but a moving target — the next `docker pull` may resolve
+# to a different digest with different CVEs. For production builds,
+# pin to an explicit digest captured from `docker pull python:3.12-slim`:
+#
+#   FROM python:3.12-slim@sha256:<digest-from-your-pull>
+#
+# See REFERENCE.md → Hardening → Supply chain for the full rationale
+# and the equivalent application-image digest pinning at deploy time.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
