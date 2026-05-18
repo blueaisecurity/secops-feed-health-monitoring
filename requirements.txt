@@ -13,5 +13,5 @@ secops==0.44.0
 google-cloud-monitoring==2.30.0
 google-genai==2.0.1
 PyYAML==6.0.3
-requests==2.33.1
+requests==2.34.2
 functions-framework==3.10.1
