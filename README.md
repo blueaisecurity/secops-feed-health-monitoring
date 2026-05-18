@@ -68,6 +68,7 @@ python -m app.main                         # one monitoring pass
 #Remove-Item env:JIRA_API_KEY
 #Remove-Item env:EMAIL_SMTP_USERNAME
 #Remove-Item env:EMAIL_SMTP_PASSWORD
+#Remove-Item env:PROJECT_ID
 ```
 
 By default all outbound actions ship **disabled** — the first run is safe
