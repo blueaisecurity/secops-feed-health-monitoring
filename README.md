@@ -141,9 +141,10 @@ from a hardened GCS bucket, no JSON keys on disk. Full walkthrough in
 ## AI Disclosure
 
 Portions of this codebase were generated or refined with the assistance
-of AI coding tools (e.g., GitHub Copilot). All AI-assisted contributions
-have been reviewed and tested by human maintainers, who remain
-responsible for the code.
+of AI coding tools (e.g., GitHub Copilot). AI-assisted contributions are
+reviewed and tested by human maintainers before being merged. As noted
+in the [LICENSE](LICENSE), the software is provided "as is", without
+warranty of any kind — use at your own risk.
 
 ## License
 
