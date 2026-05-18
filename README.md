@@ -64,11 +64,8 @@ python -m app.sync_feeds                   # discover feeds
 python -m app.main                         # one monitoring pass
 
 # ── Clean up (optional; env vars die with the terminal anyway) ──
-#Remove-Item env:CUSTOMER_ID
-#Remove-Item env:JIRA_API_KEY
-#Remove-Item env:EMAIL_SMTP_USERNAME
-#Remove-Item env:EMAIL_SMTP_PASSWORD
-#Remove-Item env:PROJECT_ID
+#Remove-Item env:<env> #for each env 
+
 ```
 
 By default all outbound actions ship **disabled** — the first run is safe
