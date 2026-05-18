@@ -60,3 +60,10 @@ and degrade gracefully when the action is disabled.
   install footprint matters for Cloud Run cold-start.
 - Anything that requires `variables.yaml` to be committed, or that
   reads secrets from `config.yaml`.
+
+## Use of AI tools
+
+AI coding assistants (e.g., GitHub Copilot) may be used to help draft
+or refine contributions. If you use them, please review and test the
+output yourself before opening a PR — you are responsible for the
+code you submit.

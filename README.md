@@ -138,6 +138,13 @@ from a hardened GCS bucket, no JSON keys on disk. Full walkthrough in
   way to allow file-resident secrets to load. Discouraged; intended for
   one-off migrations only.
 
+## AI Disclosure
+
+Portions of this codebase were generated or refined with the assistance
+of AI coding tools (e.g., GitHub Copilot). All AI-assisted contributions
+have been reviewed and tested by human maintainers, who remain
+responsible for the code.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
