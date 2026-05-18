@@ -42,42 +42,32 @@ python -m venv venv
 pip install -r requirements.txt
 
 cp config.yaml.example     config.yaml       # tuning knobs + action toggles
-cp variables.yaml.example  variables.yaml    # fill in project_id, region (NOT customer_id — see below)
+cp variables.yaml.example  variables.yaml    # fill in project_id, region (NOT customer_id)
 
-# ── Required secrets — set as env vars, never in variables.yaml ──
-# CUSTOMER_ID is always required. The others only when the matching
-# action is enabled in config.yaml. PROJECT_ID can alternatively live
-# in variables.yaml instead of here.
-#
-# PowerShell:
+# ── Secrets: env vars only, never in variables.yaml ──
 $env:CUSTOMER_ID="<chronicle-customer-uuid>"   # always required
 $env:JIRA_API_KEY="<atlassian-api-token>"      # if actions.jira.enabled = true
-#$env:EMAIL_SMTP_USERNAME="<smtp-user>"         # if SMTP relay needs auth - if enabled
-#$env:EMAIL_SMTP_PASSWORD="<smtp-password>"     # if SMTP relay needs auth - if enabled
+#$env:EMAIL_SMTP_USERNAME="<smtp-user>"        # if SMTP relay needs auth
+#$env:EMAIL_SMTP_PASSWORD="<smtp-password>"    # if SMTP relay needs auth
+
+# GCP project — can also be set in variables.yaml instead.
+$env:PROJECT_ID="<your-gcp-project-id>"
 
 gcloud auth application-default login
-# Tell gcloud + ADC which project to bill API calls / quota against.
-# Without these, google-auth prints "no quota project" and "no project ID
-# could be determined" warnings on every run. Run once, persists.
-gcloud config set project <your-gcp-project-id>
-gcloud auth application-default set-quota-project <your-gcp-project-id>
-# Alternatives: impersonate a service account, or set
-# GOOGLE_APPLICATION_CREDENTIALS / credentials_file to a SA JSON key.
-# See REFERENCE.md (Provide GCP credentials) for options and the
-# IAM roles / granular permissions the service account needs.
+gcloud config set project $env:PROJECT_ID
+gcloud auth application-default set-quota-project $env:PROJECT_ID
+# Alt: service account impersonation or GOOGLE_APPLICATION_CREDENTIALS.
+# See REFERENCE.md (Provide GCP credentials) for options + IAM roles.
 
 python .\tests\test_connection.py          # smoke test
 python -m app.sync_feeds                   # discover feeds
 python -m app.main                         # one monitoring pass
 
-#---Clean UP-----
-#clear var from shell 
+# ── Clean up (optional; env vars die with the terminal anyway) ──
 #Remove-Item env:CUSTOMER_ID
 #Remove-Item env:JIRA_API_KEY
-#Remove-Item env:EMAIL_SMTP_USERNAME  # if you set it
-#Remove-Item env:EMAIL_SMTP_PASSWORD  # if you set it
-
-#note: these env vars only exist for the lifetime of the current terminal session anyway — closing the window clears them automatically
+#Remove-Item env:EMAIL_SMTP_USERNAME
+#Remove-Item env:EMAIL_SMTP_PASSWORD
 ```
 
 By default all outbound actions ship **disabled** — the first run is safe
