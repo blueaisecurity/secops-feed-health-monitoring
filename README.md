@@ -46,7 +46,7 @@ cp variables.yaml.example  variables.yaml    # fill in project_id, region (NOT c
 
 # ── Secrets: env vars only, never in variables.yaml ──
 $env:CUSTOMER_ID="<chronicle-customer-uuid>"   # always required
-#$env:JIRA_API_KEY="<atlassian-api-token>"      # if actions.jira.enabled = true
+#$env:JIRA_API_KEY="<atlassian-api-token>"     # if actions.jira.enabled = true
 #$env:EMAIL_SMTP_USERNAME="<smtp-user>"        # if SMTP relay needs auth
 #$env:EMAIL_SMTP_PASSWORD="<smtp-password>"    # if SMTP relay needs auth
 
