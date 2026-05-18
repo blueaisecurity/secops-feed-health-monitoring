@@ -1828,6 +1828,25 @@ are already narrow.
 If your org forbids predefined roles, build a custom role with exactly
 what the app calls. Each line below is one IAM permission string.
 
+> **Heads-up — `chronicle.*` permissions cannot go in a GCP custom role.**
+> All `chronicle.feeds.*` and `chronicle.legacies.*` permissions are
+> served by the Chronicle / SecOps API surface and are **not assignable
+> via `gcloud iam roles create`**. Attempting it fails with:
+>
+> ```
+> ERROR: (gcloud.iam.roles.create) INVALID_ARGUMENT:
+>   Permission chronicle.legacies.legacyRunUdmQuery is not valid.
+> ```
+>
+> The same applies to `chronicle.feeds.list/get/update/enable/disable`.
+> For the Chronicle pieces you must bind the predefined roles
+> (`roles/chronicle.viewer` for read / UDM search, `roles/chronicle.editor`
+> for enable/disable) directly to the service account. The custom role
+> below covers only the non-Chronicle permissions and is layered
+> *alongside* those predefined roles. See the
+> [copy-paste snippet](#copy-paste-build-the-least-privilege-custom-role)
+> at the end of this section.
+
 **`feed_state` check** (`chronicle.feeds.list`, `chronicle.feeds.get`):
 
 ```
@@ -1853,7 +1872,8 @@ tenant.)
 chronicle.legacies.legacyRunUdmQuery
 ```
 
-(This permission is bundled in `roles/chronicle.viewer`.)
+(This permission is bundled in `roles/chronicle.viewer`. It cannot be
+added to a GCP custom role — bind `roles/chronicle.viewer` directly.)
 
 **`gcp_metrics` check:**
 
@@ -1888,6 +1908,59 @@ needs (separate SA, not the runtime SA):
 
 ```
 run.jobs.run
+```
+
+### Copy-paste: build the least-privilege custom role
+
+This creates a project-level custom role with every permission the app
+needs **except** the `chronicle.*` ones (which must come from predefined
+Chronicle roles — see the note at the top of this section). Drop the
+optional blocks you don't use (`llm`, GCS-mounted config, Secret Manager).
+
+```bash
+PROJECT="<your-project-id>"
+SA="feed-health-sa@${PROJECT}.iam.gserviceaccount.com"
+
+# 1. Create the custom role (non-Chronicle permissions only).
+gcloud iam roles create feedHealthMonitor \
+  --project="$PROJECT" \
+  --title="Feed Health Monitor (least privilege)" \
+  --stage=GA \
+  --permissions="\
+monitoring.timeSeries.list,\
+monitoring.metricDescriptors.list,\
+aiplatform.endpoints.predict,\
+storage.objects.get,\
+storage.objects.list,\
+secretmanager.versions.access"
+
+# 2. Bind the custom role to the runtime SA.
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${SA}" \
+  --role="projects/${PROJECT}/roles/feedHealthMonitor"
+
+# 3. Bind the predefined Chronicle role(s) — these carry the
+#    chronicle.feeds.* and chronicle.legacies.* permissions that
+#    custom roles cannot hold.
+#    Use chronicle.viewer for read-only (feed_state + udm_search).
+#    Use chronicle.editor if you also need restart_feed / auto_restart.
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${SA}" \
+  --role="roles/chronicle.editor"     # or roles/chronicle.viewer
+
+# 4. (Cloud Scheduler trigger SA — separate identity)
+SCHED_SA="feed-health-scheduler@${PROJECT}.iam.gserviceaccount.com"
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${SCHED_SA}" \
+  --role="roles/run.invoker"          # or a custom role with run.jobs.run
+```
+
+To update the custom role later (e.g. after enabling `llm`):
+
+```bash
+gcloud iam roles update feedHealthMonitor \
+  --project="$PROJECT" \
+  --add-permissions="aiplatform.endpoints.predict"
 ```
 
 ## Auto-restart
